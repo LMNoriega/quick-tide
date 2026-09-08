@@ -710,7 +710,7 @@ class TidalPlayerTUI:
         self.current_idx: int = 0
         self.current_track: Optional[Dict[str, Any]] = None
         self.current_cover_path: str = ""
-        self._displayed_cover: Optional[str] = None
+        self._displayed_cover: Any = None
         self.lyrics_synced: List[Dict[str, Any]] = []
         self.lyrics_plain: List[str] = []
         self.is_paused: bool = False
@@ -870,20 +870,6 @@ class TidalPlayerTUI:
         bpm = getattr(track.get("raw_obj"), "bpm", None) or 120.0
         self.visualizer.set_bpm(bpm)
 
-        # Notificación desktop
-        try:
-            subprocess.Popen(
-                [
-                    "notify-send", "-a", "Tidal Hi-Fi", "-i", "audio-speakers",
-                    track.get("name", "Reproduciendo"),
-                    f"{track.get('artist', '')} — {track.get('album', '')}"
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-        except Exception:
-            pass
-
     def toggle_pause(self):
         self.mpv.toggle_pause()
         self.is_paused = not self.is_paused
@@ -1003,46 +989,90 @@ class TidalPlayerTUI:
             self.last_cols = cols
             self.last_lines = lines
             self.needs_full_redraw = True
+            try:
+                subprocess.run(["kitten", "icat", "--clear"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            except Exception:
+                pass
 
         buf: list[str] = []
         w = buf.append
 
-        # Módulo izquierdo más amplio y barra divisora desplazada hacia la derecha
-        left_width = min(68, max(46, int(cols * 0.44)))
-        divider_col = left_width + 1
-        right_col = left_width + 3
-        right_width = cols - right_col - 1
+        # Diseño reactivo para Hyprland / tiling dinámico:
+        # A partir de 66 columnas hay espacio para dos columnas (reproductor + letras sincronizadas).
+        # Con menos de 66 columnas, el reproductor usa ancho completo sin deformar controles ni fuentes.
+        show_lyrics = (cols >= 66)
 
-        # Carátula proporcionalmente más grande y nítida
-        art_w = min(44, left_width - 8)
-        art_h = max(12, min(22, lines // 2 - 2))
-        art_x = max(2, (left_width - art_w) // 2)
-        art_y = 2
-
-        if self.needs_full_redraw:
-            w("\033[2J")
-            # Dibujar divisor vertical
-            for r in range(1, lines):
-                w(f"\033[{r};{divider_col}H{COLOR_SURFACE2}│{RESET}")
-            self.needs_full_redraw = False
-            self._displayed_cover = None
-
-        # Renderizar carátula en cuanto esté descargada y lista
-        if self.current_cover_path and os.path.isfile(self.current_cover_path):
-            if self._displayed_cover != self.current_cover_path:
-                if buf:
-                    sys.stdout.write("".join(buf))
-                    sys.stdout.flush()
-                    buf.clear()
-                self.render_kitty_art(art_x, art_y, art_w, art_h)
-                self._displayed_cover = self.current_cover_path
+        if show_lyrics:
+            if cols >= 120:
+                left_width = min(56, max(42, int(cols * 0.42)))
+            elif cols >= 90:
+                left_width = min(48, max(38, int(cols * 0.45)))
+            else:
+                left_width = min(42, max(34, int(cols * 0.48)))
+            divider_col = left_width + 1
+            right_col = left_width + 3
+            right_width = max(10, cols - right_col - 1)
+        else:
+            left_width = max(24, cols - 2)
+            divider_col = None
+            right_col = None
+            right_width = 0
 
         # Helper para limpiar sólo el ancho del módulo izquierdo sin borrar el divisor ni la columna derecha
         def clear_left(r: int):
             w(f"\033[{r};2H{' ' * (left_width - 1)}")
 
-        # Espaciado holgado de 2 líneas bajo la portada
-        text_start_row = art_y + art_h + 2
+        # Cálculo reactivo de la altura de la carátula según 'lines':
+        if lines >= 36:
+            art_h = min(16, max(8, lines // 3))
+            has_gap = True
+        elif lines >= 28:
+            art_h = min(12, max(6, lines // 3 - 1))
+            has_gap = True
+        elif lines >= 22:
+            art_h = min(8, max(5, lines // 4))
+            has_gap = True
+        elif lines >= 17:
+            art_h = min(5, max(4, lines // 4))
+            has_gap = False
+        else:
+            art_h = 0  # Terminal muy compacta: ocultar carátula para priorizar texto y controles
+            has_gap = False
+
+        if art_h > 0:
+            art_w = min(left_width - 4, max(6, int(art_h * 2.1)))
+            art_x = max(2, (left_width - art_w) // 2)
+            art_y = 2 if lines >= 20 else 1
+            gap_art_text = 2 if (lines >= 28) else 1
+            text_start_row = art_y + art_h + gap_art_text
+        else:
+            art_w = 0
+            art_x = 2
+            art_y = 1
+            text_start_row = 2
+
+        if self.needs_full_redraw:
+            w("\033_Ga=d,d=A\033\\")  # Eliminar imágenes Kitty previas de inmediato
+            w("\033[2J")             # Limpiar pantalla completa
+            self.needs_full_redraw = False
+            self._displayed_cover = None
+
+        # Renderizar carátula en Kitty si corresponde
+        cover_signature = (self.current_cover_path, art_w, art_h, art_x, art_y)
+        if art_h > 0 and self.current_cover_path and os.path.isfile(self.current_cover_path):
+            if self._displayed_cover != cover_signature:
+                if buf:
+                    sys.stdout.write("".join(buf))
+                    sys.stdout.flush()
+                    buf.clear()
+                self.render_kitty_art(art_x, art_y, art_w, art_h)
+                self._displayed_cover = cover_signature
+        elif art_h == 0 and self._displayed_cover is not None:
+            try:
+                subprocess.run(["kitten", "icat", "--clear"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            except Exception:
+                pass
+            self._displayed_cover = None
 
         # ================= METADATOS (COLUMNA IZQUIERDA) =================
         track = self.current_track or {}
@@ -1051,14 +1081,23 @@ class TidalPlayerTUI:
         styled_badge, badge_len = self.get_quality_badge()
 
         # Fila 1: Nombre del tema (arriba en negrita, jerarquía principal completa)
-        clear_left(text_start_row)
-        w(f"\033[{text_start_row};2H{BOLD}{COLOR_TEXT}{title[:left_width-4]}{RESET}")
+        title_row = text_start_row
+        clear_left(title_row)
+        w(f"\033[{title_row};2H{BOLD}{COLOR_TEXT}{title[:left_width-4]}{RESET}")
 
-        # Cálculo de la barra de progreso para alinear badge y pista exactamente con la duración
-        prog_row = text_start_row + 2
+        # Filas dinámicas: separar un poco el badge y artista de la duración de la canción
+        artist_row = text_start_row + 1
+        if has_gap:
+            clear_left(text_start_row + 2)
+            prog_row = text_start_row + 3
+            status_row = text_start_row + 4
+        else:
+            prog_row = text_start_row + 2
+            status_row = text_start_row + 3
+
         pos_str = tidal_backend.format_duration(self.position)
         dur_str = tidal_backend.format_duration(self.duration)
-        bar_len = max(10, left_width - 16)
+        bar_len = max(6, left_width - 16)
         ratio = (self.position / self.duration) if self.duration > 0 else 0.0
         filled = int(ratio * bar_len)
         bar_str = "━" * filled + "●" + "─" * max(0, bar_len - filled - 1)
@@ -1069,18 +1108,17 @@ class TidalPlayerTUI:
 
         # Fila 2: Artista a la izquierda y Badge de calidad a la derecha alineado con la duración
         badge_col = max(2, right_edge - badge_len + 1)
-        max_artist_len = max(8, badge_col - 4)
+        max_artist_len = max(6, badge_col - 4)
 
-        clear_left(text_start_row + 1)
-        w(f"\033[{text_start_row + 1};2H{COLOR_SUBTEXT1}{artist[:max_artist_len]}{RESET}")
-        w(f"\033[{text_start_row + 1};{badge_col}H{styled_badge}")
+        clear_left(artist_row)
+        w(f"\033[{artist_row};2H{COLOR_SUBTEXT1}{artist[:max_artist_len]}{RESET}")
+        w(f"\033[{artist_row};{badge_col}H{styled_badge}")
 
-        # Fila 3: Barra de progreso
+        # Fila de Barra de progreso
         clear_left(prog_row)
         w(f"\033[{prog_row};2H{COLOR_SUBTEXT1}{pos_str} {COLOR_MAUVE}{bar_str} {COLOR_SUBTEXT1}{dur_str}{RESET}")
 
-        # Fila 4: Controles de reproducción centrados y contador de pista alineado a la derecha con badge y duración
-        status_row = text_start_row + 3
+        # Fila de Controles de reproducción centrados y contador de pista alineado a la derecha
         status_icon = f"{BOLD}{COLOR_PEACH}⏸{RESET}" if self.is_paused else f"{BOLD}{COLOR_MAUVE}▶{RESET}"
         queue_pos = f"Pista {self.current_idx + 1}/{len(self.queue)}" if self.queue else ""
 
@@ -1089,19 +1127,20 @@ class TidalPlayerTUI:
         w(f"\033[{status_row};{center_col}H{status_icon}")
 
         if queue_pos:
-            queue_col = max(center_col + 4, right_edge - len(queue_pos) + 1)
-            w(f"\033[{status_row};{queue_col}H{COLOR_SUBTEXT1}{queue_pos}{RESET}")
+            q_text = queue_pos if left_width >= 42 else f"{self.current_idx + 1}/{len(self.queue)}"
+            queue_col = max(center_col + 4, right_edge - len(q_text) + 1)
+            w(f"\033[{status_row};{queue_col}H{COLOR_SUBTEXT1}{q_text}{RESET}")
 
-        # Fila 5: Separador antes del visualizador
+        # Fila separadora antes del visualizador
         clear_left(status_row + 1)
 
         # ================= VISUALIZADOR DE AUDIO (TIPO CAVA) =================
         vis_top = status_row + 2
-        vis_bottom = lines - 4
+        vis_bottom = lines - 4 if lines >= 20 else lines - 1
         vis_height = vis_bottom - vis_top + 1
 
-        if vis_height >= 2 and left_width >= 20:
-            num_bars = max(6, (left_width - 6) // 3)
+        if vis_height >= 2 and left_width >= 16:
+            num_bars = max(4, (left_width - 6) // 3)
             total_bars_width = num_bars * 3
             vis_x = max(2, (left_width - total_bars_width) // 2 + 2)
 
@@ -1119,108 +1158,113 @@ class TidalPlayerTUI:
                 clear_left(target_r)
                 w(f"\033[{target_r};{vis_x}H{line_str}")
 
-        # Guía de teclas ubicada abajo a la izquierda en la esquina (sin volumen)
-        clear_left(lines - 2)
-        w(f"\033[{lines - 2};2H{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
-        clear_left(lines - 1)
-        w(f"\033[{lines - 1};2H{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}")
+        # Guía de teclas ubicada abajo a la izquierda en la esquina (reactiva a tamaño de pantalla)
+        if lines >= 20:
+            clear_left(lines - 2)
+            w(f"\033[{lines - 2};2H{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
+            clear_left(lines - 1)
+            if left_width >= 50:
+                guide_str = f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+            elif left_width >= 36:
+                guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Cola  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+            else:
+                guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+            w(f"\033[{lines - 1};2H{guide_str[:left_width-2]}")
 
         # ================= LETRAS (COLUMNA DERECHA) =================
-        # Minimalista: sin títulos, emojis ni guiones arriba
-        w(f"\033[1;{right_col}H\033[K")
-        w(f"\033[2;{right_col}H\033[K")
+        if show_lyrics and right_col and right_width:
+            w(f"\033[1;{right_col}H\033[K")
+            w(f"\033[2;{right_col}H\033[K")
 
-        start_row = 2
-        lyric_lines_avail = lines - 4
+            start_row = 2
+            lyric_lines_avail = lines - 4
 
-        if self.lyrics_synced:
-            # Encontrar el índice actual según la posición
-            active_idx = 0
-            for i, item in enumerate(self.lyrics_synced):
-                if item["timestamp"] <= self.position:
-                    active_idx = i
-                else:
-                    break
+            if self.lyrics_synced:
+                active_idx = 0
+                for i, item in enumerate(self.lyrics_synced):
+                    if item["timestamp"] <= self.position:
+                        active_idx = i
+                    else:
+                        break
 
-            start_idx = active_idx - (lyric_lines_avail // 2)
-            for offset in range(lyric_lines_avail):
-                curr_row = start_row + offset
-                item_idx = start_idx + offset
-                w(f"\033[{curr_row};{right_col}H\033[K")
+                start_idx = active_idx - (lyric_lines_avail // 2)
+                for offset in range(lyric_lines_avail):
+                    curr_row = start_row + offset
+                    item_idx = start_idx + offset
+                    w(f"\033[{curr_row};{right_col}H\033[K")
 
-                if 0 <= item_idx < len(self.lyrics_synced):
-                    dist = abs(item_idx - active_idx)
+                    if 0 <= item_idx < len(self.lyrics_synced):
+                        dist = abs(item_idx - active_idx)
 
-                    # Si está más allá del alcance de la curva, no mostrar nada para evitar el padding plano repetitivo
+                        # Si está más allá del alcance de la curva, no mostrar nada
+                        if dist > 4:
+                            continue
+
+                        l_text = self.lyrics_synced[item_idx]["text"]
+
+                        # Efecto de lente circular / cilindro 3D:
+                        if dist == 0:
+                            style = f"{BOLD}{COLOR_MAUVE}"
+                            prefix = " ▶ "
+                        elif dist == 1:
+                            style = "\033[38;2;234;224;231m"  # Texto principal claro y nítido
+                            prefix = "    "
+                        elif dist == 2:
+                            style = "\033[38;2;195;182;194m"  # Subtexto medio
+                            prefix = "     "
+                        elif dist == 3:
+                            style = "\033[38;2;138;125;137m"  # Atenuado gris
+                            prefix = "      "
+                        else: # dist == 4
+                            style = "\033[38;2;75;64;76m"     # Fundiéndose casi al 100% con el fondo
+                            prefix = "       "
+
+                        max_len = max(6, right_width - len(prefix) - 2)
+                        if len(l_text) > max_len:
+                            l_text = l_text[:max_len - 3] + "..."
+
+                        w(f"{style}{prefix}{l_text}{RESET}")
+            elif self.lyrics_plain:
+                mid_plain = lyric_lines_avail // 2
+                for offset in range(min(lyric_lines_avail, len(self.lyrics_plain))):
+                    curr_row = start_row + offset
+                    w(f"\033[{curr_row};{right_col}H\033[K")
+                    dist = abs(offset - mid_plain)
                     if dist > 4:
                         continue
-
-                    l_text = self.lyrics_synced[item_idx]["text"]
-
-                    # Efecto de lente circular / cilindro 3D:
-                    # Cada línea visible tiene una sangría única y se va atenuando hasta fundirse con el fondo y desaparecer
-                    if dist == 0:
-                        style = f"{BOLD}{COLOR_MAUVE}"
-                        prefix = " ▶ "
-                    elif dist == 1:
-                        style = "\033[38;2;234;224;231m"  # Texto principal claro y nítido
+                    l_text = self.lyrics_plain[offset]
+                    if dist <= 1:
+                        style = f"{COLOR_TEXT}"
                         prefix = "    "
                     elif dist == 2:
-                        style = "\033[38;2;195;182;194m"  # Subtexto medio
+                        style = f"{COLOR_SUBTEXT0}"
                         prefix = "     "
                     elif dist == 3:
-                        style = "\033[38;2;138;125;137m"  # Atenuado gris
+                        style = f"{COLOR_SUBTEXT1}"
                         prefix = "      "
                     else: # dist == 4
-                        style = "\033[38;2;75;64;76m"     # Fundiéndose casi al 100% con el fondo
+                        style = "\033[38;2;75;64;76m"
                         prefix = "       "
-
-                    max_len = max(10, right_width - len(prefix) - 2)
+                    max_len = max(6, right_width - len(prefix) - 2)
                     if len(l_text) > max_len:
                         l_text = l_text[:max_len - 3] + "..."
-
                     w(f"{style}{prefix}{l_text}{RESET}")
-        elif self.lyrics_plain:
-            mid_plain = lyric_lines_avail // 2
-            for offset in range(min(lyric_lines_avail, len(self.lyrics_plain))):
-                curr_row = start_row + offset
-                w(f"\033[{curr_row};{right_col}H\033[K")
-                dist = abs(offset - mid_plain)
-                if dist > 4:
-                    continue
-                l_text = self.lyrics_plain[offset]
-                if dist <= 1:
-                    style = f"{COLOR_TEXT}"
-                    prefix = "    "
-                elif dist == 2:
-                    style = f"{COLOR_SUBTEXT0}"
-                    prefix = "     "
-                elif dist == 3:
-                    style = f"{COLOR_SUBTEXT1}"
-                    prefix = "      "
-                else: # dist == 4
-                    style = "\033[38;2;75;64;76m"
-                    prefix = "       "
-                max_len = max(10, right_width - len(prefix) - 2)
-                if len(l_text) > max_len:
-                    l_text = l_text[:max_len - 3] + "..."
-                w(f"{style}{prefix}{l_text}{RESET}")
-        else:
-            mid_r = lines // 2
-            w(f"\033[{mid_r - 1};{right_col + 4}H\033[K")
-            w(f"{COLOR_SURFACE2}♪  ♫  ♩  ♬  ♪  ♫  ♩  ♬{RESET}")
-            w(f"\033[{mid_r};{right_col + 4}H\033[K")
-            w(f"{COLOR_SUBTEXT1}No hay letras disponibles para este tema.{RESET}")
-            w(f"\033[{mid_r + 1};{right_col + 4}H\033[K")
-            w(f"{COLOR_SURFACE2}Disfruta de la calidad de audio Hi-Fi en Tidal.{RESET}")
+            else:
+                mid_r = lines // 2
+                w(f"\033[{mid_r - 1};{right_col + 2}H\033[K")
+                w(f"{COLOR_SURFACE2}♪  ♫  ♩  ♬  ♪  ♫  ♩  ♬{RESET}")
+                w(f"\033[{mid_r};{right_col + 2}H\033[K")
+                w(f"{COLOR_SUBTEXT1}No hay letras disponibles para este tema.{RESET}")
+                w(f"\033[{mid_r + 1};{right_col + 2}H\033[K")
+                w(f"{COLOR_SURFACE2}Disfruta de la calidad de audio Hi-Fi en Tidal.{RESET}")
 
-        # Limpiar filas restantes del margen inferior derecho
-        w(f"\033[{lines - 1};{right_col}H\033[K")
-        w(f"\033[{lines};{right_col}H\033[K")
+            # Limpiar filas restantes del margen inferior derecho
+            w(f"\033[{lines - 1};{right_col}H\033[K")
+            w(f"\033[{lines};{right_col}H\033[K")
 
-        # Dibujar divisor vertical continuo de arriba a abajo en cada frame (sin huecos)
-        for r in range(1, lines):
-            w(f"\033[{r};{divider_col}H{COLOR_SURFACE2}│{RESET}")
+            # Dibujar divisor vertical continuo de arriba a abajo en cada frame (sin huecos)
+            for r in range(1, lines):
+                w(f"\033[{r};{divider_col}H{COLOR_SURFACE2}│{RESET}")
 
         sys.stdout.write("".join(buf))
         sys.stdout.flush()
