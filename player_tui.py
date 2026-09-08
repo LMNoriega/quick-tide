@@ -16,6 +16,7 @@ import logging
 import os
 import random
 import re
+import math
 import select
 import signal
 import socket
@@ -46,7 +47,8 @@ from dbus_next.service import ServiceInterface, dbus_property, method, signal as
 from dbus_next.constants import PropertyAccess
 from dbus_next import BusType, Variant
 
-MPV_SOCKET = f"/tmp/tidal-mpv-{os.getpid()}.sock"
+MPV_SOCKET_A = f"/tmp/tidal-mpv-a-{os.getpid()}.sock"
+MPV_SOCKET_B = f"/tmp/tidal-mpv-b-{os.getpid()}.sock"
 PLAYER_SOCKET = "/tmp/tidal-player.sock"
 SERP_STATE = os.path.expanduser("~/.local/state/serpantinum")
 
@@ -424,6 +426,12 @@ class MpvProcess:
     def set_volume(self, vol: int):
         return self.command("set_property", "volume", max(0, min(100, vol)))
 
+    def stop_playback(self):
+        return self.command("stop")
+
+    def set_pause(self, paused: bool):
+        return self.command("set_property", "pause", bool(paused))
+
     def get_property(self, prop: str) -> Any:
         return self.command("get_property", prop)
 
@@ -704,7 +712,12 @@ frame_delimiter = 10
 
 class TidalPlayerTUI:
     def __init__(self, initial_type: str = "track", initial_id: Optional[Any] = None, initial_start_idx: int = 0):
-        self.mpv = MpvProcess(MPV_SOCKET)
+        # Doble deck de MPV para fundido cruzado simultáneo real (True Equal-Power Crossfade)
+        self.deck_a = MpvProcess(MPV_SOCKET_A)
+        self.deck_b = MpvProcess(MPV_SOCKET_B)
+        self.active_deck: MpvProcess = self.deck_a
+        self.standby_deck: MpvProcess = self.deck_b
+
         self.running = True
         self.queue: List[Dict[str, Any]] = []
         self.current_idx: int = 0
@@ -734,16 +747,19 @@ class TidalPlayerTUI:
         self.crossfade_enabled: bool = False  # Crossfade siempre inicia desactivado (OFF) independientemente del valor configurado
         self.configured_quality: str = str(self.config.get("quality", "lossless"))
 
-        self._fade_in_remaining: float = 0.0
-        self._is_fading_out: bool = False
-        self._last_applied_vol: Optional[int] = None
+        # Variables de estado para mezcla simultánea
+        self.is_crossfading: bool = False
+        self._xfade_duration: float = 5.0
+        self._xfade_elapsed: float = 0.0
+        self._incoming_track: Optional[Dict[str, Any]] = None
 
         # Iniciar servicio MPRIS2 D-Bus
         self.mpris = TidalMprisService(self)
         self.mpris.start()
 
-        # Configurar volumen inicial
-        self.mpv.set_volume(self.volume)
+        # Configurar volumen inicial en ambos decks
+        self.deck_a.set_volume(self.volume)
+        self.deck_b.set_volume(0)
         self.mpris.update_volume(self.volume)
 
         # Iniciar servidor IPC para recibir selecciones al vuelo desde el buscador
@@ -753,6 +769,11 @@ class TidalPlayerTUI:
         # Cargar selección inicial
         if initial_id:
             self.load_selection(initial_type, initial_id, initial_start_idx)
+
+    @property
+    def mpv(self) -> MpvProcess:
+        """Devuelve el deck activo actual para compatibilidad total con MPRIS y consultas de estado."""
+        return self.active_deck
 
     def _ipc_server_loop(self):
         """Escucha comandos desde tidal-search-gui para cambiar canciones/álbumes/playlists al vuelo."""
@@ -820,36 +841,51 @@ class TidalPlayerTUI:
                     self.play_track(track)
 
     def play_track(self, track: Dict[str, Any]):
-        self.current_track = track
-        self.position = 0.0
-        self.duration = float(track.get("duration", 0))
-        self.is_paused = False
-        self.needs_full_redraw = True
-        self._displayed_cover = None
-        self._last_badge_check = 0.0
-        self._last_mpv_poll = 0.0
+        with self._cmd_lock:
+            if self.is_crossfading:
+                self.standby_deck.stop_playback()
+                self.standby_deck.set_volume(0)
+                self.is_crossfading = False
+                self._incoming_track = None
+                self._xfade_elapsed = 0.0
 
-        # Obtener stream URL o manifiesto DASH
-        stream_url = tidal_backend.get_track_stream_url(track.get("raw_obj") or track.get("id"))
-        if stream_url:
-            self.mpv.load_file(stream_url)
+            self.current_track = track
+            self.position = 0.0
+            self.duration = float(track.get("duration", 0))
+            self.is_paused = False
+            self.needs_full_redraw = True
+            self._displayed_cover = None
+            self._last_badge_check = 0.0
+            self._last_mpv_poll = 0.0
 
-        # Iniciar descarga de carátula
+            # Cargar stream en el deck activo a volumen completo
+            self.active_deck.set_volume(self.volume)
+            stream_url = tidal_backend.get_track_stream_url(track.get("raw_obj") or track.get("id"))
+            if stream_url:
+                self.active_deck.load_file(stream_url)
+                self.active_deck.set_pause(False)
+
+            # Detener deck secundario y resetear su volumen
+            self.standby_deck.stop_playback()
+            self.standby_deck.set_volume(0)
+
+            # Cargar carátula, letras, MPRIS y precargar el próximo tema
+            self._load_track_sidecars(track)
+
+    def _load_track_sidecars(self, track: Dict[str, Any]):
+        # Descarga de carátula
         cover_url = track.get("cover_url")
         key = track.get("album_id") or track.get("id")
 
         def _cover_downloader():
             c_path = tidal_backend.download_cover(cover_url, key)
             self.current_cover_path = c_path
-            # Actualizar MPRIS con la carátula local
             self.mpris.update_track(track, c_path)
 
         threading.Thread(target=_cover_downloader, daemon=True).start()
-
-        # Notificar a MPRIS inicialmente
         self.mpris.update_track(track, "")
 
-        # Obtener letras en segundo plano (Tidal con fallback automático a LRCLIB)
+        # Letras en segundo plano
         self.lyrics_synced = []
         self.lyrics_plain = []
         t_id = track.get("id")
@@ -880,19 +916,7 @@ class TidalPlayerTUI:
         bpm = getattr(track.get("raw_obj"), "bpm", None) or 120.0
         self.visualizer.set_bpm(bpm)
 
-        # Configurar volumen inicial según estado de crossfade
-        if self.crossfade_enabled and self.crossfade_duration > 0:
-            self._fade_in_remaining = float(self.crossfade_duration)
-            self._is_fading_out = False
-            self._last_applied_vol = 0
-            self.mpv.set_volume(0)
-        else:
-            self._fade_in_remaining = 0.0
-            self._is_fading_out = False
-            self._last_applied_vol = self.volume
-            self.mpv.set_volume(self.volume)
-
-        # Precargar stream URL y carátula del siguiente tema en la cola
+        # Precargar stream URL y carátula del siguiente tema en la cola en segundo plano
         if self.queue and self.current_idx < len(self.queue) - 1:
             next_t = self.queue[self.current_idx + 1]
             def _prefetch_next():
@@ -906,22 +930,94 @@ class TidalPlayerTUI:
                     pass
             threading.Thread(target=_prefetch_next, daemon=True).start()
 
+    def _start_crossfade(self, remaining: float):
+        with self._cmd_lock:
+            if self.is_crossfading:
+                return
+            if not (self.queue and self.current_idx < len(self.queue) - 1):
+                return
+
+            self._incoming_track = self.queue[self.current_idx + 1]
+            next_obj = self._incoming_track.get("raw_obj") or self._incoming_track.get("id")
+            stream_url = tidal_backend.get_track_stream_url(next_obj)
+            if not stream_url:
+                return
+
+            self.is_crossfading = True
+            self._xfade_duration = min(float(self.crossfade_duration), max(1.0, remaining))
+            self._xfade_elapsed = 0.0
+
+            # Cargar tema siguiente en el deck secundario e iniciar reproducción en volumen 0
+            self.standby_deck.set_volume(0)
+            self.standby_deck.load_file(stream_url)
+            self.standby_deck.set_pause(False)
+
+    def _complete_crossfade(self):
+        with self._cmd_lock:
+            if not self.is_crossfading:
+                return
+
+            # 1. Detener el deck saliente y poner su volumen en 0
+            self.active_deck.stop_playback()
+            self.active_deck.set_volume(0)
+
+            # 2. Asegurar volumen completo en el deck entrante
+            self.standby_deck.set_volume(self.volume)
+
+            # 3. Intercambiar decks (el entrante pasa a ser el activo)
+            self.active_deck, self.standby_deck = self.standby_deck, self.active_deck
+
+            # 4. Avanzar índice de la cola
+            self.current_idx += 1
+            new_track = self.queue[self.current_idx]
+            self.current_track = new_track
+
+            # 5. Restablecer estado de crossfade
+            self.is_crossfading = False
+            self._incoming_track = None
+            self._xfade_elapsed = 0.0
+
+            # 6. Sincronizar posición y duración
+            in_pos = self.active_deck.get_property("time-pos")
+            self.position = float(in_pos) if in_pos is not None else float(self._xfade_duration)
+            self.duration = float(new_track.get("duration", 0))
+            self.needs_full_redraw = True
+            self._displayed_cover = None
+            self._last_badge_check = 0.0
+            self._last_mpv_poll = 0.0
+
+            # 7. Cargar metadatos, letras y carátula del nuevo tema
+            self._load_track_sidecars(new_track)
+
     def toggle_pause(self):
-        self.mpv.toggle_pause()
+        self.active_deck.toggle_pause()
+        if self.is_crossfading:
+            self.standby_deck.toggle_pause()
         self.is_paused = not self.is_paused
         self.mpris.update_playback_status(self.is_paused)
 
     def next_track(self):
         with self._cmd_lock:
+            if self.is_crossfading:
+                self._complete_crossfade()
+                return
             if self.queue and self.current_idx < len(self.queue) - 1:
                 self.current_idx += 1
                 self.play_track(self.queue[self.current_idx])
 
     def prev_track(self):
         with self._cmd_lock:
+            if self.is_crossfading:
+                self.standby_deck.stop_playback()
+                self.standby_deck.set_volume(0)
+                self.active_deck.set_volume(self.volume)
+                self.is_crossfading = False
+                self._incoming_track = None
+                self._xfade_elapsed = 0.0
             if self.queue:
                 if self.position > 3.0:
-                    self.mpv.seek(-self.position)
+                    self.active_deck.seek(-self.position)
+                    self.position = 0.0
                 elif self.current_idx > 0:
                     self.current_idx -= 1
                     self.play_track(self.queue[self.current_idx])
@@ -1239,8 +1335,12 @@ class TidalPlayerTUI:
             clear_left(lines - 2)
             w(f"\033[{lines - 2};2H{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
             clear_left(lines - 1)
-            xf_tag = f"{COLOR_PEACH}ON{RESET}" if self.crossfade_enabled else f"{COLOR_SUBTEXT1}OFF{RESET}"
-            xf_sym = f"{COLOR_PEACH}●{RESET}" if self.crossfade_enabled else f"{COLOR_SUBTEXT1}○{RESET}"
+            if self.is_crossfading:
+                xf_tag = f"{COLOR_PEACH}⇄ MEZCLANDO{RESET}"
+                xf_sym = f"{COLOR_PEACH}⇄{RESET}"
+            else:
+                xf_tag = f"{COLOR_PEACH}ON{RESET}" if self.crossfade_enabled else f"{COLOR_SUBTEXT1}OFF{RESET}"
+                xf_sym = f"{COLOR_PEACH}●{RESET}" if self.crossfade_enabled else f"{COLOR_SUBTEXT1}○{RESET}"
             if left_width >= 66:
                 guide_str = f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±5s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[x] {COLOR_TEXT}XFade: {xf_tag}  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
             elif left_width >= 52:
@@ -1353,74 +1453,69 @@ class TidalPlayerTUI:
 
     def update_playback_state(self, dt: float = 0.0):
         now = time.time()
-        # Interpolate position smoothly between IPC socket queries
-        if not self.is_paused and self.position > 0.0:
-            self.position += dt
+        # 1. Avanzar posición interpolada y tiempo de crossfade si no está en pausa
+        if not self.is_paused:
+            if self.position > 0.0:
+                self.position += dt
+            if self.is_crossfading:
+                self._xfade_elapsed += dt
 
-        # Query MPV IPC every 0.25s (4 Hz) to eliminate socket round-trip stalls
+        # 2. Si hay crossfade en curso, calcular y aplicar curva Equal-Power a ambos decks
+        if self.is_crossfading and self._xfade_duration > 0:
+            progress = min(1.0, max(0.0, self._xfade_elapsed / self._xfade_duration))
+
+            # Curva de ecualización de potencia suave (Equal-Power Crossfade):
+            # A progress=0: out_factor=1.0, in_factor=0.0
+            # A progress=0.5: out_factor≈0.707, in_factor≈0.707 (suma de energías acústicas = 1.0)
+            # A progress=1.0: out_factor=0.0, in_factor=1.0
+            angle = progress * (math.pi / 2.0)
+            out_factor = math.cos(angle)
+            in_factor = math.sin(angle)
+
+            out_vol = max(0, min(100, int(round(self.volume * out_factor))))
+            in_vol = max(0, min(100, int(round(self.volume * in_factor))))
+
+            self.active_deck.set_volume(out_vol)
+            self.standby_deck.set_volume(in_vol)
+
+            if progress >= 1.0:
+                self._complete_crossfade()
+                return
+
+        # 3. Query MPV IPC cada 0.25s (4 Hz) para sincronizar posición y estado
         if now - self._last_mpv_poll < 0.25:
             return
 
         self._last_mpv_poll = now
-        pos = self.mpv.get_property("time-pos")
+        pos = self.active_deck.get_property("time-pos")
         if pos is not None:
             self.position = float(pos)
             self.mpris.update_position(self.position)
 
-        dur = self.mpv.get_property("duration")
+        dur = self.active_deck.get_property("duration")
         if dur is not None:
             self.duration = float(dur)
 
-        paused = self.mpv.get_property("pause")
+        paused = self.active_deck.get_property("pause")
         if paused is not None:
             if self.is_paused != bool(paused):
                 self.is_paused = bool(paused)
                 self.mpris.update_playback_status(self.is_paused)
 
-        # Manejo de Crossfade (fade-out hacia la siguiente canción y fade-in al comenzar)
-        if self.crossfade_enabled and self.crossfade_duration > 0 and self.duration > self.crossfade_duration * 1.5:
-            remaining = self.duration - self.position
-            has_next = bool(self.queue and self.current_idx < len(self.queue) - 1)
+        # 4. Disparar inicio de Crossfade si está habilitado y llegamos al umbral
+        if self.crossfade_enabled and not self.is_crossfading and self.crossfade_duration > 0:
+            if self.duration > self.crossfade_duration * 1.5 and self.position > 5.0:
+                remaining = self.duration - self.position
+                has_next = bool(self.queue and self.current_idx < len(self.queue) - 1)
+                if remaining <= self.crossfade_duration and has_next:
+                    self._start_crossfade(remaining)
 
-            # Fade-out al final de la canción
-            if remaining <= self.crossfade_duration and remaining > 0.0 and has_next:
-                self._is_fading_out = True
-                fade_ratio = max(0.0, min(1.0, remaining / self.crossfade_duration))
-                target_vol = int(round(self.volume * fade_ratio))
-                if target_vol != self._last_applied_vol:
-                    self.mpv.set_volume(target_vol)
-                    self._last_applied_vol = target_vol
-
-                # Transición al completar el fundido de salida
-                if remaining <= 0.4:
-                    self.next_track()
-                    return
-            else:
-                self._is_fading_out = False
-
-            # Fade-in al inicio de la canción
-            if self._fade_in_remaining > 0.0 and not self.is_paused and not self._is_fading_out:
-                self._fade_in_remaining = max(0.0, self._fade_in_remaining - 0.25)
-                fade_in_ratio = max(0.0, min(1.0, 1.0 - (self._fade_in_remaining / self.crossfade_duration)))
-                target_vol = int(round(self.volume * fade_in_ratio))
-                if target_vol != self._last_applied_vol:
-                    self.mpv.set_volume(target_vol)
-                    self._last_applied_vol = target_vol
-                if self._fade_in_remaining <= 0.0 and self._last_applied_vol != self.volume:
-                    self.mpv.set_volume(self.volume)
-                    self._last_applied_vol = self.volume
-        else:
-            # Restaurar volumen si crossfade está desactivado o terminó el fundido
-            if self._last_applied_vol is not None and self._last_applied_vol != self.volume:
-                self.mpv.set_volume(self.volume)
-                self._last_applied_vol = self.volume
-            self._is_fading_out = False
-            self._fade_in_remaining = 0.0
-
-        # Detectar fin de pista para avanzar automáticamente
-        idle = self.mpv.get_property("idle-active")
+        # 5. Detectar fin de pista para avanzar automáticamente
+        idle = self.active_deck.get_property("idle-active")
         if idle and self.position > 0.0 and self.duration > 0.0:
-            if self.position >= self.duration - 1.5:
+            if self.is_crossfading:
+                self._complete_crossfade()
+            elif self.position >= self.duration - 1.5:
                 self.next_track()
 
     def run(self):
@@ -1480,35 +1575,45 @@ class TidalPlayerTUI:
                     self._last_mpv_poll = 0.0
                 elif raw.startswith(b"\x1b") and (raw.endswith(b"C") or raw.endswith(b"c")):
                     # Flecha derecha (+5s)
-                    self.mpv.seek(5)
-                    self.position = min(self.duration, self.position + 5.0)
+                    if self.is_crossfading:
+                        self._complete_crossfade()
+                    else:
+                        self.active_deck.seek(5)
+                        self.position = min(self.duration, self.position + 5.0)
                     self._last_mpv_poll = 0.0
                 elif raw.startswith(b"\x1b") and (raw.endswith(b"D") or raw.endswith(b"d")):
                     # Flecha izquierda (-5s)
-                    self.mpv.seek(-5)
+                    if self.is_crossfading:
+                        self.standby_deck.stop_playback()
+                        self.standby_deck.set_volume(0)
+                        self.active_deck.set_volume(self.volume)
+                        self.is_crossfading = False
+                        self._incoming_track = None
+                        self._xfade_elapsed = 0.0
+                    self.active_deck.seek(-5)
                     self.position = max(0.0, self.position - 5.0)
                     self._last_mpv_poll = 0.0
                 elif raw in (b"x", b"X"):
                     self.crossfade_enabled = not self.crossfade_enabled
-                    if not self.crossfade_enabled:
-                        self._is_fading_out = False
-                        self._fade_in_remaining = 0.0
-                        self.mpv.set_volume(self.volume)
-                        self._last_applied_vol = self.volume
+                    if not self.crossfade_enabled and self.is_crossfading:
+                        self.standby_deck.stop_playback()
+                        self.standby_deck.set_volume(0)
+                        self.active_deck.set_volume(self.volume)
+                        self.is_crossfading = False
+                        self._incoming_track = None
+                        self._xfade_elapsed = 0.0
                     self.needs_full_redraw = True
                 elif raw.startswith(b"\x1b") and (raw.endswith(b"A") or raw.endswith(b"a")):
                     # Flecha arriba (+5 vol)
                     self.volume = min(100, self.volume + 5)
-                    if not self._is_fading_out and self._fade_in_remaining <= 0.0:
-                        self.mpv.set_volume(self.volume)
-                        self._last_applied_vol = self.volume
+                    if not self.is_crossfading:
+                        self.active_deck.set_volume(self.volume)
                     self.mpris.update_volume(self.volume)
                 elif raw.startswith(b"\x1b") and (raw.endswith(b"B") or raw.endswith(b"b")):
                     # Flecha abajo (-5 vol)
                     self.volume = max(0, self.volume - 5)
-                    if not self._is_fading_out and self._fade_in_remaining <= 0.0:
-                        self.mpv.set_volume(self.volume)
-                        self._last_applied_vol = self.volume
+                    if not self.is_crossfading:
+                        self.active_deck.set_volume(self.volume)
                     self.mpris.update_volume(self.volume)
 
             now = time.time()
@@ -1526,7 +1631,8 @@ class TidalPlayerTUI:
 
         self.restore_terminal()
         self.mpris.stop()
-        self.mpv.stop()
+        self.deck_a.stop()
+        self.deck_b.stop()
         self.cava_reader.stop()
 
 

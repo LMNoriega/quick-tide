@@ -22,6 +22,7 @@
   - Curvatura parabólica hacia el interior y degradado suave de brillo/opacidad conforme las letras se alejan del centro.
   - Las líneas lejanas se funden progresivamente con el fondo oscuro hasta desaparecer sin dejar espacios planos.
 - **Doble fuente de letras (Tidal + LRCLIB)**: Si una canción no tiene letra en Tidal, consulta automáticamente en segundo plano la base de datos libre de **[LRCLIB](https://lrclib.net/)** (sincronizada o plana).
+- **Fundido Cruzado Real (True Dual-Deck Crossfade)**: Mezcla simultánea con arquitectura de doble deck MPV y ecualización de potencia acústica constante (`Equal-Power` con curvas seno/coseno). La siguiente canción comienza a sonar y subir de volumen mientras la actual finaliza y se desvanece suavemente sin baches de volumen ni cortes agresivos.
 - **Integración MPRIS2**: Control multimedia completo desde atajos globales de teclado, widgets de barra y pantalla de bloqueo.
 
 ---
@@ -134,7 +135,7 @@ crossfade = 5
 | Clave | Valores permitidos | Por defecto | Descripción |
 | :--- | :--- | :--- | :--- |
 | `quality` | `"low"`, `"high"`, `"lossless"`, `"max"` | `"lossless"` | Calidad deseada de streaming de audio. Intenta usar la calidad especificada siempre que se pueda, con degradación elegante si la cuenta o pista no la soportan. `"max"` requiere suscripción TIDAL Max. |
-| `crossfade` | entero (segundos) | `5` | Duración del fundido de salida y entrada en segundos al pasar entre pistas. Se activa y desactiva con la tecla `x`. Siempre inicia en `OFF` al arrancar. |
+| `crossfade` | entero (segundos) | `5` | Duración del fundido cruzado simultáneo en segundos. La pista siguiente empieza a sonar mientras la actual concluye, fundiéndose suavemente con curvas Equal-Power. Se activa y desactiva con la tecla `x`. Siempre inicia en `OFF` al arrancar. |
 
 ---
 
