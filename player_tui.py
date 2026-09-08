@@ -1191,13 +1191,15 @@ class TidalPlayerTUI:
             clear_left(lines - 2)
             w(f"\033[{lines - 2};2H{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
             clear_left(lines - 1)
-            if left_width >= 50:
+            if left_width >= 54:
                 guide_str = f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
-            elif left_width >= 36:
+            elif left_width >= 42:
                 guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Cola  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
-            else:
+            elif left_width >= 24:
                 guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
-            w(f"\033[{lines - 1};2H{guide_str[:left_width-2]}")
+            else:
+                guide_str = f"{COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+            w(f"\033[{lines - 1};2H{guide_str}")
 
         # ================= LETRAS (COLUMNA DERECHA) =================
         if show_lyrics and right_col and right_width:
