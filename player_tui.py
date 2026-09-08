@@ -28,9 +28,9 @@ import tty
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-# Ensure low-tide and tidal-gui modules are on sys.path
+# Ensure low-tide and quick-tide modules are on sys.path
 import glob
-SHARE_DIR = os.path.expanduser("~/.local/share/tidal-gui")
+SHARE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOWTIDE_DIR = os.path.expanduser("~/.local/share/low-tide")
 venv_site_pkgs = glob.glob(os.path.join(LOWTIDE_DIR, ".venv", "lib", "python*", "site-packages"))
 
@@ -1345,7 +1345,7 @@ def main():
         app.run()
     except Exception as e:
         import traceback
-        crash_log = os.path.expanduser("~/.local/share/tidal-gui/player_crash.log")
+        crash_log = os.path.join(SHARE_DIR, "player_crash.log")
         with open(crash_log, "a") as f:
             f.write(f"\n=== CRASH AT {time.ctime()} ===\n")
             traceback.print_exc(file=f)

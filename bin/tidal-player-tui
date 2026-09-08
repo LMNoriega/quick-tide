@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Tidal TUI Player (Kitty + MPV + CAVA + LRCLIB)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Quick-Tide TUI Player (Kitty + MPV + CAVA + LRCLIB)
+REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)"
 SHARE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [ ! -f "$SHARE_DIR/player_tui.py" ]; then
-    SHARE_DIR="$HOME/.local/share/tidal-gui"
+    SHARE_DIR="$HOME/.local/share/quick-tide"
+    [ ! -f "$SHARE_DIR/player_tui.py" ] && SHARE_DIR="$HOME/.local/share/tidal-gui"
 fi
 
 if [ -x "$HOME/.local/share/low-tide/.venv/bin/python" ]; then

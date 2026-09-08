@@ -1,4 +1,4 @@
-# 🌊 Tidal Serpantinum Suite
+# 🌊 Quick-Tide (Tidal Serpantinum Suite)
 
 > Lanzador flotante de búsqueda rápida y reproductor de música Hi-Fi en terminal con carátulas nativas en Kitty, visualizador PipeWire CAVA, letras sincronizadas con fallback a LRCLIB y estética Serpantinum / Liquid Glass para Linux (Hyprland / Wayland).
 
@@ -32,7 +32,7 @@ Este proyecto funciona como una **suite de integración / companion frontend** d
 
 1. **Gestión de Sesión & OAuth**: Tidal utiliza autenticación OAuth basada en navegador con renovación continua de tokens. Para evitar reinventar la rueda de login y no arriesgar tus credenciales, reutilizamos el cliente de sesión de `low-tide`, el cual guarda tus tokens en `~/.config/low-tide/session.json`.
 2. **Una sola vez**: Solo necesitas descargar `low-tide` y loguearte **una única vez**. Una vez que el archivo `session.json` exista, **no necesitas volver a abrir low-tide nunca más**.
-3. **Ejecución autónoma**: `tidal-gui` y `tidal-player-tui` leen directamente las credenciales de ese archivo de sesión, se conectan a los servidores de Tidal para buscar y extraer streams FLAC/Hi-Res en MPV, descargan carátulas y administran la cola de reproducción por su cuenta.
+3. **Ejecución autónoma**: `quick-tide` (`tidal-search-gui`) y `tidal-player-tui` leen directamente las credenciales de ese archivo de sesión, se conectan a los servidores de Tidal para buscar y extraer streams FLAC/Hi-Res en MPV, descargan carátulas y administran la cola de reproducción por su cuenta.
 
 ---
 
@@ -70,20 +70,20 @@ python -m lowtide
 
 ---
 
-### Paso 2: Instalar Tidal Suite
-
+### Paso 2: Instalar Quick-Tide
+ 
 ```bash
-# 1. Clonar este repositorio en ~/.local/share/tidal-gui
-git clone https://github.com/LMNoriega/tidal-gui.git ~/.local/share/tidal-gui
-cd ~/.local/share/tidal-gui
+# 1. Clonar este repositorio
+git clone https://github.com/LMNoriega/quick-tide.git ~/.local/share/quick-tide
+cd ~/.local/share/quick-tide
 
 # 2. Ejecutar el instalador automático
 ./install.sh
 ```
 
-El instalador verificará las dependencias y creará los enlaces simbólicos en `~/.local/bin`:
-- `tidal-search-gui`: Lanzador flotante QML.
-- `tidal-player-tui`: Reproductor en terminal.
+El instalador verificará las dependencias y creará los ejecutables en `~/.local/bin`:
+- `quick-tide` / `tidal-search-gui`: Lanzador flotante QML.
+- `quick-tide-player` / `tidal-player-tui`: Reproductor en terminal.
 
 ---
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Tidal Serpantinum Suite - Installer & Setup Script
+# Quick-Tide - Installer & Setup Script
 # ==============================================================================
 
 set -e
@@ -12,7 +12,7 @@ RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-echo -e "${BOLD}${BLUE}=== Instalador de Tidal Suite (Serpantinum / Hyprland) ===${NC}\n"
+echo -e "${BOLD}${BLUE}=== Instalador de Quick-Tide (Tidal Serpantinum Suite) ===${NC}\n"
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
@@ -65,8 +65,10 @@ echo -e "\n${BLUE}3. Vinculando ejecutables en $BIN_DIR...${NC}"
 chmod +x "$INSTALL_DIR/bin/"*
 ln -sf "$INSTALL_DIR/bin/tidal-search-gui" "$BIN_DIR/tidal-search-gui"
 ln -sf "$INSTALL_DIR/bin/tidal-player-tui" "$BIN_DIR/tidal-player-tui"
-echo -e "  [${GREEN}✓${NC}] tidal-search-gui -> $BIN_DIR/tidal-search-gui"
-echo -e "  [${GREEN}✓${NC}] tidal-player-tui -> $BIN_DIR/tidal-player-tui"
+ln -sf "$INSTALL_DIR/bin/tidal-search-gui" "$BIN_DIR/quick-tide"
+ln -sf "$INSTALL_DIR/bin/tidal-player-tui" "$BIN_DIR/quick-tide-player"
+echo -e "  [${GREEN}✓${NC}] quick-tide / tidal-search-gui -> $BIN_DIR/quick-tide"
+echo -e "  [${GREEN}✓${NC}] quick-tide-player / tidal-player-tui -> $BIN_DIR/quick-tide-player"
 
 # 4. Instrucciones para Hyprland
 echo -e "\n${BOLD}${GREEN}✔ Instalación completada con éxito.${NC}"

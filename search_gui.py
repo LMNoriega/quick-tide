@@ -12,7 +12,7 @@ import subprocess
 import threading
 
 # Add local share to sys.path to import tidal_backend
-SHARE_DIR = os.path.expanduser("~/.local/share/tidal-gui")
+SHARE_DIR = os.path.dirname(os.path.abspath(__file__))
 if SHARE_DIR not in sys.path:
     sys.path.insert(0, SHARE_DIR)
 
