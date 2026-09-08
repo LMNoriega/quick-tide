@@ -126,7 +126,7 @@ windowrulev2 = center, class:^(tidal-player-tui)$
 | Tecla | Acción |
 | :--- | :--- |
 | `Espacio` | Alternar Reproducción / Pausa. |
-| `←` / `→` | Retroceder / Avanzar 10 segundos. |
+| `←` / `→` | Retroceder / Avanzar 5 segundos. |
 | `n` / `p` | Siguiente pista / Pista anterior en la cola. |
 | `q` | Salir del reproductor. |
 

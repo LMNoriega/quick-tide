@@ -1151,7 +1151,7 @@ class TidalPlayerTUI:
         w(f"\033[{prog_row};2H{COLOR_SUBTEXT1}{pos_str} {COLOR_MAUVE}{bar_str} {COLOR_SUBTEXT1}{dur_str}{RESET}")
 
         # Fila de Controles de reproducción centrados y contador de pista alineado a la derecha
-        status_icon = f"{BOLD}{COLOR_PEACH}⏸{RESET}" if self.is_paused else f"{BOLD}{COLOR_MAUVE}▶{RESET}"
+        status_icon = f"{BOLD}{COLOR_MAUVE}▶{RESET}" if self.is_paused else f"{BOLD}{COLOR_PEACH}⏸{RESET}"
         queue_pos = f"Pista {self.current_idx + 1}/{len(self.queue)}" if self.queue else ""
 
         clear_left(status_row)
@@ -1192,9 +1192,9 @@ class TidalPlayerTUI:
             w(f"\033[{lines - 2};2H{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
             clear_left(lines - 1)
             if left_width >= 54:
-                guide_str = f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+                guide_str = f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±5s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
             elif left_width >= 42:
-                guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Cola  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+                guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±5s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Cola  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
             elif left_width >= 24:
                 guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
             else:
@@ -1353,46 +1353,59 @@ class TidalPlayerTUI:
             elapsed = now - last_draw
             time_to_wait = max(0.001, frame_interval - elapsed)
 
-            # Manejar pulsaciones de teclado no bloqueantes
-            r, _, _ = select.select([sys.stdin], [], [], min(0.015, time_to_wait))
+            # Manejar pulsaciones de teclado no bloqueantes sin buffering de Python
+            fd = sys.stdin.fileno()
+            r, _, _ = select.select([fd], [], [], min(0.015, time_to_wait))
             if r:
                 try:
-                    ch = sys.stdin.read(1)
+                    raw = os.read(fd, 64)
                 except Exception:
-                    ch = ""
-                if not ch:
-                    time.sleep(0.01)
+                    raw = b""
+
+                if not raw:
                     continue
-                if ch == "q" or ch == "\x03":
+
+                # Si sólo llegó el byte de escape \x1b, esperar brevemente a los bytes siguientes de la secuencia
+                if raw == b"\x1b":
+                    r2, _, _ = select.select([fd], [], [], 0.04)
+                    if r2:
+                        try:
+                            raw += os.read(fd, 64)
+                        except Exception:
+                            pass
+
+                if raw in (b"q", b"Q", b"\x03"):
                     self.running = False
                     break
-                elif ch == " ":
+                elif b" " in raw:
                     self.toggle_pause()
                     self._last_mpv_poll = 0.0
-                elif ch == "n":
+                elif raw in (b"n", b"N"):
                     self.next_track()
                     self._last_mpv_poll = 0.0
-                elif ch == "p":
+                elif raw in (b"p", b"P"):
                     self.prev_track()
                     self._last_mpv_poll = 0.0
-                elif ch == "\033":
-                    r2, _, _ = select.select([sys.stdin], [], [], 0.005)
-                    if r2:
-                        seq = sys.stdin.read(2)
-                        if seq == "[C":  # Flecha derecha (+10s)
-                            self.mpv.seek(10)
-                            self._last_mpv_poll = 0.0
-                        elif seq == "[D":  # Flecha izquierda (-10s)
-                            self.mpv.seek(-10)
-                            self._last_mpv_poll = 0.0
-                        elif seq == "[A":  # Flecha arriba (+5 vol)
-                            self.volume = min(100, self.volume + 5)
-                            self.mpv.set_volume(self.volume)
-                            self.mpris.update_volume(self.volume)
-                        elif seq == "[B":  # Flecha abajo (-5 vol)
-                            self.volume = max(0, self.volume - 5)
-                            self.mpv.set_volume(self.volume)
-                            self.mpris.update_volume(self.volume)
+                elif raw.startswith(b"\x1b") and (raw.endswith(b"C") or raw.endswith(b"c")):
+                    # Flecha derecha (+5s)
+                    self.mpv.seek(5)
+                    self.position = min(self.duration, self.position + 5.0)
+                    self._last_mpv_poll = 0.0
+                elif raw.startswith(b"\x1b") and (raw.endswith(b"D") or raw.endswith(b"d")):
+                    # Flecha izquierda (-5s)
+                    self.mpv.seek(-5)
+                    self.position = max(0.0, self.position - 5.0)
+                    self._last_mpv_poll = 0.0
+                elif raw.startswith(b"\x1b") and (raw.endswith(b"A") or raw.endswith(b"a")):
+                    # Flecha arriba (+5 vol)
+                    self.volume = min(100, self.volume + 5)
+                    self.mpv.set_volume(self.volume)
+                    self.mpris.update_volume(self.volume)
+                elif raw.startswith(b"\x1b") and (raw.endswith(b"B") or raw.endswith(b"b")):
+                    # Flecha abajo (-5 vol)
+                    self.volume = max(0, self.volume - 5)
+                    self.mpv.set_volume(self.volume)
+                    self.mpris.update_volume(self.volume)
 
             now = time.time()
             dt = now - last_draw
