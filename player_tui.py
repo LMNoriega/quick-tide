@@ -1037,6 +1037,10 @@ class TidalPlayerTUI:
                 self.render_kitty_art(art_x, art_y, art_w, art_h)
                 self._displayed_cover = self.current_cover_path
 
+        # Helper para limpiar sólo el ancho del módulo izquierdo sin borrar el divisor ni la columna derecha
+        def clear_left(r: int):
+            w(f"\033[{r};2H{' ' * (left_width - 1)}")
+
         # Espaciado holgado de 2 líneas bajo la portada
         text_start_row = art_y + art_h + 2
 
@@ -1047,23 +1051,11 @@ class TidalPlayerTUI:
         styled_badge, badge_len = self.get_quality_badge()
 
         # Fila 1: Nombre del tema (arriba en negrita, jerarquía principal completa)
-        w(f"\033[{text_start_row};2H\033[K")
-        w(f"{BOLD}{COLOR_TEXT}{title[:left_width-4]}{RESET}")
+        clear_left(text_start_row)
+        w(f"\033[{text_start_row};2H{BOLD}{COLOR_TEXT}{title[:left_width-4]}{RESET}")
 
-        # Fila 2: Artista a la izquierda y Badge de calidad a la derecha pegado a la barra divisora
-        # Con la misma jerarquía secundaria: más grisecito, sin negrita, del estilo del artista
-        badge_col = max(2, divider_col - badge_len - 1)
-        max_artist_len = max(8, badge_col - 4)
-
-        w(f"\033[{text_start_row + 1};2H\033[K")
-        w(f"{COLOR_SUBTEXT1}{artist[:max_artist_len]}{RESET}")
-        w(f"\033[{text_start_row + 1};{badge_col}H{styled_badge}")
-
-        # Limpiar fila intermedia (antiguo álbum eliminado)
-        w(f"\033[{text_start_row + 2};2H\033[K")
-
-        # Barra de progreso
-        prog_row = text_start_row + 3
+        # Cálculo de la barra de progreso para alinear badge y pista exactamente con la duración
+        prog_row = text_start_row + 2
         pos_str = tidal_backend.format_duration(self.position)
         dur_str = tidal_backend.format_duration(self.duration)
         bar_len = max(10, left_width - 16)
@@ -1071,27 +1063,37 @@ class TidalPlayerTUI:
         filled = int(ratio * bar_len)
         bar_str = "━" * filled + "●" + "─" * max(0, bar_len - filled - 1)
 
-        w(f"\033[{prog_row};2H\033[K")
-        w(f"{COLOR_SUBTEXT1}{pos_str} {COLOR_MAUVE}{bar_str} {COLOR_SUBTEXT1}{dur_str}{RESET}")
+        # La duración termina en right_edge (margen derecho simétrico de la columna izquierda)
+        dur_start_col = 4 + len(pos_str) + bar_len
+        right_edge = dur_start_col + len(dur_str) - 1
 
-        # Controles de reproducción centrados y contador de pista alineado a la derecha
-        status_row = text_start_row + 4
+        # Fila 2: Artista a la izquierda y Badge de calidad a la derecha alineado con la duración
+        badge_col = max(2, right_edge - badge_len + 1)
+        max_artist_len = max(8, badge_col - 4)
+
+        clear_left(text_start_row + 1)
+        w(f"\033[{text_start_row + 1};2H{COLOR_SUBTEXT1}{artist[:max_artist_len]}{RESET}")
+        w(f"\033[{text_start_row + 1};{badge_col}H{styled_badge}")
+
+        # Fila 3: Barra de progreso
+        clear_left(prog_row)
+        w(f"\033[{prog_row};2H{COLOR_SUBTEXT1}{pos_str} {COLOR_MAUVE}{bar_str} {COLOR_SUBTEXT1}{dur_str}{RESET}")
+
+        # Fila 4: Controles de reproducción centrados y contador de pista alineado a la derecha con badge y duración
+        status_row = text_start_row + 3
         status_icon = f"{BOLD}{COLOR_PEACH}⏸{RESET}" if self.is_paused else f"{BOLD}{COLOR_MAUVE}▶{RESET}"
         queue_pos = f"Pista {self.current_idx + 1}/{len(self.queue)}" if self.queue else ""
 
-        w(f"\033[{status_row};2H\033[K")
-        # Botón Play / Pausa en el medio justo debajo de la barra de progreso (estándar de la industria)
+        clear_left(status_row)
         center_col = max(2, left_width // 2)
         w(f"\033[{status_row};{center_col}H{status_icon}")
 
-        # Texto de pista xx/xx a la derecha, debajo de la duración de la canción
         if queue_pos:
-            dur_end_col = 2 + len(pos_str) + 1 + bar_len + 1 + len(dur_str)
-            queue_col = max(center_col + 4, dur_end_col - len(queue_pos))
+            queue_col = max(center_col + 4, right_edge - len(queue_pos) + 1)
             w(f"\033[{status_row};{queue_col}H{COLOR_SUBTEXT1}{queue_pos}{RESET}")
 
-        # Limpiar fila separadora antes del visualizador
-        w(f"\033[{status_row + 1};2H\033[K")
+        # Fila 5: Separador antes del visualizador
+        clear_left(status_row + 1)
 
         # ================= VISUALIZADOR DE AUDIO (TIPO CAVA) =================
         vis_top = status_row + 2
@@ -1114,26 +1116,22 @@ class TidalPlayerTUI:
 
             for i, line_str in enumerate(vis_lines):
                 target_r = vis_top + i
+                clear_left(target_r)
                 w(f"\033[{target_r};{vis_x}H{line_str}")
 
         # Guía de teclas ubicada abajo a la izquierda en la esquina (sin volumen)
-        w(f"\033[{lines - 2};2H\033[K")
-        w(f"{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
-        w(f"\033[{lines - 1};2H\033[K")
-        w(f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}")
+        clear_left(lines - 2)
+        w(f"\033[{lines - 2};2H{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
+        clear_left(lines - 1)
+        w(f"\033[{lines - 1};2H{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±10s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}")
 
         # ================= LETRAS (COLUMNA DERECHA) =================
-        header_row = 2
-        tag = "󰎆 LETRAS"
-        tag_len = 10
-        total_dashes = max(4, right_width - tag_len - 2)
-        left_dashes = total_dashes // 2
-        right_dashes = total_dashes - left_dashes
+        # Minimalista: sin títulos, emojis ni guiones arriba
+        w(f"\033[1;{right_col}H\033[K")
+        w(f"\033[2;{right_col}H\033[K")
 
-        w(f"\033[{header_row};{right_col}H\033[K")
-        w(f"{BOLD}{COLOR_MAUVE}{'─' * left_dashes} {tag} {'─' * right_dashes}{RESET}")
-
-        lyric_lines_avail = lines - 5
+        start_row = 2
+        lyric_lines_avail = lines - 4
 
         if self.lyrics_synced:
             # Encontrar el índice actual según la posición
@@ -1146,7 +1144,7 @@ class TidalPlayerTUI:
 
             start_idx = active_idx - (lyric_lines_avail // 2)
             for offset in range(lyric_lines_avail):
-                curr_row = header_row + 2 + offset
+                curr_row = start_row + offset
                 item_idx = start_idx + offset
                 w(f"\033[{curr_row};{right_col}H\033[K")
 
@@ -1185,7 +1183,7 @@ class TidalPlayerTUI:
         elif self.lyrics_plain:
             mid_plain = lyric_lines_avail // 2
             for offset in range(min(lyric_lines_avail, len(self.lyrics_plain))):
-                curr_row = header_row + 2 + offset
+                curr_row = start_row + offset
                 w(f"\033[{curr_row};{right_col}H\033[K")
                 dist = abs(offset - mid_plain)
                 if dist > 4:
@@ -1208,13 +1206,21 @@ class TidalPlayerTUI:
                     l_text = l_text[:max_len - 3] + "..."
                 w(f"{style}{prefix}{l_text}{RESET}")
         else:
-            mid_r = header_row + lyric_lines_avail // 2
+            mid_r = lines // 2
             w(f"\033[{mid_r - 1};{right_col + 4}H\033[K")
             w(f"{COLOR_SURFACE2}♪  ♫  ♩  ♬  ♪  ♫  ♩  ♬{RESET}")
             w(f"\033[{mid_r};{right_col + 4}H\033[K")
             w(f"{COLOR_SUBTEXT1}No hay letras disponibles para este tema.{RESET}")
             w(f"\033[{mid_r + 1};{right_col + 4}H\033[K")
             w(f"{COLOR_SURFACE2}Disfruta de la calidad de audio Hi-Fi en Tidal.{RESET}")
+
+        # Limpiar filas restantes del margen inferior derecho
+        w(f"\033[{lines - 1};{right_col}H\033[K")
+        w(f"\033[{lines};{right_col}H\033[K")
+
+        # Dibujar divisor vertical continuo de arriba a abajo en cada frame (sin huecos)
+        for r in range(1, lines):
+            w(f"\033[{r};{divider_col}H{COLOR_SURFACE2}│{RESET}")
 
         sys.stdout.write("".join(buf))
         sys.stdout.flush()
