@@ -56,7 +56,7 @@ Si aún no tienes `low-tide` configurado con tu cuenta de Tidal:
 
 ```bash
 # 1. Clonar low-tide en ~/.local/share/low-tide
-git clone https://github.com/mrusme/low-tide.git ~/.local/share/low-tide
+git clone https://github.com/pauljhdrake/low-tide.git ~/.local/share/low-tide
 cd ~/.local/share/low-tide
 
 # 2. Crear su entorno virtual e instalar dependencias
