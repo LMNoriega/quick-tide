@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Tidal Quick Search Launcher (PyQt6 + QML)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHARE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ ! -f "$SHARE_DIR/search_gui.py" ]; then
+    SHARE_DIR="$HOME/.local/share/tidal-gui"
+fi
+
+exec python3 "$SHARE_DIR/search_gui.py" "$@"

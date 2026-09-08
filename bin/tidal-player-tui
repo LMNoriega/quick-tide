@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Tidal TUI Player (Kitty + MPV + CAVA + LRCLIB)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHARE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ ! -f "$SHARE_DIR/player_tui.py" ]; then
+    SHARE_DIR="$HOME/.local/share/tidal-gui"
+fi
+
+if [ -x "$HOME/.local/share/low-tide/.venv/bin/python" ]; then
+    PYTHON_BIN="$HOME/.local/share/low-tide/.venv/bin/python"
+else
+    PYTHON_BIN="python3"
+fi
+
+exec "$PYTHON_BIN" "$SHARE_DIR/player_tui.py" "$@"
