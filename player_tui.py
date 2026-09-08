@@ -353,7 +353,7 @@ class MpvProcess:
         self.sock_path = sock_path
         self.proc: Optional[subprocess.Popen] = None
         self.sock: Optional[socket.socket] = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.start()
 
     def start(self):
@@ -734,7 +734,7 @@ class TidalPlayerTUI:
         self.last_cols = 0
         self.last_lines = 0
         self.needs_full_redraw = True
-        self._cmd_lock = threading.Lock()
+        self._cmd_lock = threading.RLock()
         self.visualizer = CavaVisualizer()
         self.cava_reader = CavaPipewireReader(bars=24)
         self._cached_badge = "[ FLAC • 1411 kbps ]"
