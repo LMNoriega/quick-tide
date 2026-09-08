@@ -68,9 +68,17 @@ ln -sf "$INSTALL_DIR/bin/tidal-player-tui" "$BIN_DIR/tidal-player-tui"
 ln -sf "$INSTALL_DIR/bin/tidal-search-gui" "$BIN_DIR/quick-tide"
 ln -sf "$INSTALL_DIR/bin/tidal-player-tui" "$BIN_DIR/quick-tide-player"
 echo -e "  [${GREEN}✓${NC}] quick-tide / tidal-search-gui -> $BIN_DIR/quick-tide"
-echo -e "  [${GREEN}✓${NC}] quick-tide-player / tidal-player-tui -> $BIN_DIR/quick-tide-player"
+# 4. Inicializar configuración en ~/.config/quick-tide
+echo -e "\n${BLUE}4. Comprobando configuración en ~/.config/quick-tide/...${NC}"
+mkdir -p "$HOME/.config/quick-tide"
+if [ ! -f "$HOME/.config/quick-tide/config.toml" ] && [ ! -f "$HOME/.config/quick-tide/config" ]; then
+    python3 "$INSTALL_DIR/config.py" >/dev/null 2>&1 || true
+    echo -e "  [${GREEN}✓${NC}] Configuración inicial creada: $HOME/.config/quick-tide/config.toml"
+else
+    echo -e "  [${GREEN}✓${NC}] Configuración existente detectada en $HOME/.config/quick-tide/"
+fi
 
-# 4. Instrucciones para Hyprland
+# 5. Instrucciones para Hyprland
 echo -e "\n${BOLD}${GREEN}✔ Instalación completada con éxito.${NC}"
 echo -e "\n${BOLD}Atajo recomendado para Hyprland (~/.config/hypr/hyprland.conf):${NC}"
 echo -e "  bind = \$mainMod, T, exec, tidal-search-gui\n"

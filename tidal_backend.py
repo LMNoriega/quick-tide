@@ -14,8 +14,12 @@ import urllib.request
 import urllib.parse
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
+
+import config
+from config import load_config, get_quality, get_crossfade
 
 # Ensure low-tide virtualenv and modules are on sys.path
 import glob
@@ -41,12 +45,37 @@ _client_lock = threading.Lock()
 _client_instance: Optional[TidalClient] = None
 
 
+def _apply_quality_config(client: TidalClient) -> None:
+    """Apply configured quality setting to TidalClient session and floor."""
+    try:
+        from lowtide.tidal_client import _QUALITY_MAP, _QUALITY_ORDER
+        q_str = get_quality()
+        target = _QUALITY_MAP.get(q_str, _QUALITY_MAP.get("lossless"))
+        client.session.config.quality = target
+        try:
+            client._quality_floor = _QUALITY_ORDER.index(target)
+        except ValueError:
+            client._quality_floor = 1
+        log.info("Quick-Tide audio quality set to: %s (floor index %d)", q_str, client._quality_floor)
+    except Exception as e:
+        log.warning("Could not apply quick-tide audio quality: %s", e)
+
+
 def get_client() -> TidalClient:
     global _client_instance
     with _client_lock:
         if _client_instance is None:
             _client_instance = TidalClient()
+            _apply_quality_config(_client_instance)
         return _client_instance
+
+
+def reload_client_config() -> None:
+    """Reload and re-apply config to the active TidalClient instance."""
+    global _client_instance
+    with _client_lock:
+        if _client_instance is not None:
+            _apply_quality_config(_client_instance)
 
 
 def format_duration(seconds: int | float | None) -> str:
@@ -213,16 +242,41 @@ def get_album_tracks(album_id: int) -> List[Dict[str, Any]]:
         return []
 
 
+_stream_url_cache: Dict[int, Tuple[str, float]] = {}
+_stream_url_lock = threading.Lock()
+
+
 def get_track_stream_url(track_or_id: Any) -> Optional[str]:
     client = get_client()
     try:
+        t_id: Optional[int] = None
         if isinstance(track_or_id, (int, str)):
-            track = client.get_track(int(track_or_id))
+            try:
+                t_id = int(track_or_id)
+            except ValueError:
+                t_id = None
+            track = None
         else:
             track = track_or_id
+            t_id = getattr(track, "id", None)
+
+        # Check cache (valid for 15 minutes)
+        if t_id is not None:
+            with _stream_url_lock:
+                cached = _stream_url_cache.get(t_id)
+                if cached and (time.time() - cached[1] < 900):
+                    return cached[0]
+
+        if not track and t_id is not None:
+            track = client.get_track(t_id)
         if not track:
             return None
-        return client.get_track_url(track)
+
+        url = client.get_track_url(track)
+        if url and t_id is not None:
+            with _stream_url_lock:
+                _stream_url_cache[t_id] = (url, time.time())
+        return url
     except Exception as e:
         log.error("Error obteniendo stream URL: %s", e)
         return None

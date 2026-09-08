@@ -728,6 +728,16 @@ class TidalPlayerTUI:
         self._last_badge_check = 0.0
         self._last_mpv_poll = 0.0
 
+        # Cargar configuración de Quick-Tide (~/.config/quick-tide/config.toml)
+        self.config = tidal_backend.load_config()
+        self.crossfade_duration: int = int(self.config.get("crossfade", 5))
+        self.crossfade_enabled: bool = False  # Crossfade siempre inicia desactivado (OFF) independientemente del valor configurado
+        self.configured_quality: str = str(self.config.get("quality", "lossless"))
+
+        self._fade_in_remaining: float = 0.0
+        self._is_fading_out: bool = False
+        self._last_applied_vol: Optional[int] = None
+
         # Iniciar servicio MPRIS2 D-Bus
         self.mpris = TidalMprisService(self)
         self.mpris.start()
@@ -870,6 +880,32 @@ class TidalPlayerTUI:
         bpm = getattr(track.get("raw_obj"), "bpm", None) or 120.0
         self.visualizer.set_bpm(bpm)
 
+        # Configurar volumen inicial según estado de crossfade
+        if self.crossfade_enabled and self.crossfade_duration > 0:
+            self._fade_in_remaining = float(self.crossfade_duration)
+            self._is_fading_out = False
+            self._last_applied_vol = 0
+            self.mpv.set_volume(0)
+        else:
+            self._fade_in_remaining = 0.0
+            self._is_fading_out = False
+            self._last_applied_vol = self.volume
+            self.mpv.set_volume(self.volume)
+
+        # Precargar stream URL y carátula del siguiente tema en la cola
+        if self.queue and self.current_idx < len(self.queue) - 1:
+            next_t = self.queue[self.current_idx + 1]
+            def _prefetch_next():
+                try:
+                    tidal_backend.get_track_stream_url(next_t.get("raw_obj") or next_t.get("id"))
+                    n_cover = next_t.get("cover_url")
+                    n_key = next_t.get("album_id") or next_t.get("id")
+                    if n_cover:
+                        tidal_backend.download_cover(n_cover, n_key)
+                except Exception:
+                    pass
+            threading.Thread(target=_prefetch_next, daemon=True).start()
+
     def toggle_pause(self):
         self.mpv.toggle_pause()
         self.is_paused = not self.is_paused
@@ -945,29 +981,41 @@ class TidalPlayerTUI:
         params = self.mpv.get_property("audio-params") or {}
         samplerate = params.get("samplerate", 0) if isinstance(params, dict) else 0
 
+        cfg_q = getattr(self, "configured_quality", "lossless").lower()
+        codec_str = str(codec).lower() if codec else ""
+
         # Colores oficiales de Tidal con fondito sutil translúcido (igual que Super + T):
         # MAX / Hi-Res: Gold (#f5c542) sobre fondo oscuro dorado
         # FLAC / Lossless: Cyan (#00d2ff) sobre fondo oscuro cyan
         # Atmos: Purple (#bb86fc) sobre fondo oscuro púrpura
         # Normal/Low: Gray (#a6adc8) sobre fondo gris oscuro
-        if is_hires:
-            q_name = "MAX" if "MAX" in raw_q else "HI-RES"
-            q_fg = "\033[38;2;245;197;66m"
-            q_bg = "\033[48;2;48;38;14m"
-        elif "LOW" in raw_q:
-            q_name = "LOW"
-            q_fg = "\033[38;2;166;173;200m"
-            q_bg = "\033[48;2;36;38;46m"
-        elif "ATMOS" in raw_q:
+        if "atmos" in raw_q:
             q_name = "ATMOS"
             q_fg = "\033[38;2;187;134;252m"
             q_bg = "\033[48;2;38;24;54m"
-        elif raw_q in ["LOSSLESS", "FLAC"] or "FLAC" in str(codec).upper():
+        elif "aac" in codec_str or "mp4a" in codec_str:
+            if cfg_q == "low" or "low" in raw_q:
+                q_name = "LOW"
+                q_fg = "\033[38;2;166;173;200m"
+                q_bg = "\033[48;2;36;38;46m"
+            else:
+                q_name = "HIGH"
+                q_fg = "\033[38;2;116;199;236m"
+                q_bg = "\033[48;2;22;42;52m"
+        elif is_hires and (samplerate > 48000 or (isinstance(params, dict) and "24" in str(params.get("format", "")))):
+            q_name = "MAX" if ("MAX" in raw_q or cfg_q == "max") else "HI-RES"
+            q_fg = "\033[38;2;245;197;66m"
+            q_bg = "\033[48;2;48;38;14m"
+        elif "flac" in codec_str or "alac" in codec_str or raw_q in ["LOSSLESS", "FLAC"]:
             q_name = "FLAC"
             q_fg = "\033[38;2;0;210;255m"
             q_bg = "\033[48;2;0;42;54m"
+        elif cfg_q == "low" or "LOW" in raw_q:
+            q_name = "LOW"
+            q_fg = "\033[38;2;166;173;200m"
+            q_bg = "\033[48;2;36;38;46m"
         else:
-            q_name = "HIGH" if "HIGH" in raw_q else str(codec).upper()
+            q_name = "HIGH" if ("HIGH" in raw_q or cfg_q == "high") else str(codec).upper()
             q_fg = "\033[38;2;116;199;236m"
             q_bg = "\033[48;2;22;42;52m"
 
@@ -1191,10 +1239,14 @@ class TidalPlayerTUI:
             clear_left(lines - 2)
             w(f"\033[{lines - 2};2H{COLOR_SURFACE2}{'─' * (left_width - 2)}{RESET}")
             clear_left(lines - 1)
-            if left_width >= 54:
-                guide_str = f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±5s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
-            elif left_width >= 42:
-                guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±5s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Cola  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+            xf_tag = f"{COLOR_PEACH}ON{RESET}" if self.crossfade_enabled else f"{COLOR_SUBTEXT1}OFF{RESET}"
+            xf_sym = f"{COLOR_PEACH}●{RESET}" if self.crossfade_enabled else f"{COLOR_SUBTEXT1}○{RESET}"
+            if left_width >= 66:
+                guide_str = f"{COLOR_SUBTEXT1}[Espacio] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±5s  {COLOR_SUBTEXT1}[n/p] {COLOR_TEXT}Pistas  {COLOR_SUBTEXT1}[x] {COLOR_TEXT}XFade: {xf_tag}  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+            elif left_width >= 52:
+                guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[←/→] {COLOR_TEXT}±5s  {COLOR_SUBTEXT1}[x] {COLOR_TEXT}XFade {xf_sym}  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
+            elif left_width >= 36:
+                guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[x] {COLOR_TEXT}XFade {xf_sym}  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
             elif left_width >= 24:
                 guide_str = f"{COLOR_SUBTEXT1}[␣] {COLOR_TEXT}Pausa  {COLOR_SUBTEXT1}[q] {COLOR_TEXT}Salir{RESET}"
             else:
@@ -1325,6 +1377,46 @@ class TidalPlayerTUI:
                 self.is_paused = bool(paused)
                 self.mpris.update_playback_status(self.is_paused)
 
+        # Manejo de Crossfade (fade-out hacia la siguiente canción y fade-in al comenzar)
+        if self.crossfade_enabled and self.crossfade_duration > 0 and self.duration > self.crossfade_duration * 1.5:
+            remaining = self.duration - self.position
+            has_next = bool(self.queue and self.current_idx < len(self.queue) - 1)
+
+            # Fade-out al final de la canción
+            if remaining <= self.crossfade_duration and remaining > 0.0 and has_next:
+                self._is_fading_out = True
+                fade_ratio = max(0.0, min(1.0, remaining / self.crossfade_duration))
+                target_vol = int(round(self.volume * fade_ratio))
+                if target_vol != self._last_applied_vol:
+                    self.mpv.set_volume(target_vol)
+                    self._last_applied_vol = target_vol
+
+                # Transición al completar el fundido de salida
+                if remaining <= 0.4:
+                    self.next_track()
+                    return
+            else:
+                self._is_fading_out = False
+
+            # Fade-in al inicio de la canción
+            if self._fade_in_remaining > 0.0 and not self.is_paused and not self._is_fading_out:
+                self._fade_in_remaining = max(0.0, self._fade_in_remaining - 0.25)
+                fade_in_ratio = max(0.0, min(1.0, 1.0 - (self._fade_in_remaining / self.crossfade_duration)))
+                target_vol = int(round(self.volume * fade_in_ratio))
+                if target_vol != self._last_applied_vol:
+                    self.mpv.set_volume(target_vol)
+                    self._last_applied_vol = target_vol
+                if self._fade_in_remaining <= 0.0 and self._last_applied_vol != self.volume:
+                    self.mpv.set_volume(self.volume)
+                    self._last_applied_vol = self.volume
+        else:
+            # Restaurar volumen si crossfade está desactivado o terminó el fundido
+            if self._last_applied_vol is not None and self._last_applied_vol != self.volume:
+                self.mpv.set_volume(self.volume)
+                self._last_applied_vol = self.volume
+            self._is_fading_out = False
+            self._fade_in_remaining = 0.0
+
         # Detectar fin de pista para avanzar automáticamente
         idle = self.mpv.get_property("idle-active")
         if idle and self.position > 0.0 and self.duration > 0.0:
@@ -1396,15 +1488,27 @@ class TidalPlayerTUI:
                     self.mpv.seek(-5)
                     self.position = max(0.0, self.position - 5.0)
                     self._last_mpv_poll = 0.0
+                elif raw in (b"x", b"X"):
+                    self.crossfade_enabled = not self.crossfade_enabled
+                    if not self.crossfade_enabled:
+                        self._is_fading_out = False
+                        self._fade_in_remaining = 0.0
+                        self.mpv.set_volume(self.volume)
+                        self._last_applied_vol = self.volume
+                    self.needs_full_redraw = True
                 elif raw.startswith(b"\x1b") and (raw.endswith(b"A") or raw.endswith(b"a")):
                     # Flecha arriba (+5 vol)
                     self.volume = min(100, self.volume + 5)
-                    self.mpv.set_volume(self.volume)
+                    if not self._is_fading_out and self._fade_in_remaining <= 0.0:
+                        self.mpv.set_volume(self.volume)
+                        self._last_applied_vol = self.volume
                     self.mpris.update_volume(self.volume)
                 elif raw.startswith(b"\x1b") and (raw.endswith(b"B") or raw.endswith(b"b")):
                     # Flecha abajo (-5 vol)
                     self.volume = max(0, self.volume - 5)
-                    self.mpv.set_volume(self.volume)
+                    if not self._is_fading_out and self._fade_in_remaining <= 0.0:
+                        self.mpv.set_volume(self.volume)
+                        self._last_applied_vol = self.volume
                     self.mpris.update_volume(self.volume)
 
             now = time.time()

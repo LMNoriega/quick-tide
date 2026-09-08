@@ -110,6 +110,34 @@ windowrulev2 = center, class:^(tidal-player-tui)$
 
 ---
 
+## ⚙️ Archivo de Configuración (`~/.config/quick-tide/config.toml`)
+
+Quick-Tide lee sus preferencias de usuario desde `~/.config/quick-tide/config.toml`. Si el archivo o el directorio no existen, se crearán automáticamente con los valores por defecto la primera vez que se ejecute la aplicación.
+
+### Ejemplo de Configuración:
+```toml
+# Quick-Tide Configuration File
+# Ubicación: ~/.config/quick-tide/config.toml
+
+# Calidad de audio: "low", "high", "lossless", "max"
+# Por defecto: "lossless"
+# Nota: "max" requiere una suscripción TIDAL Max (Hi-Res / FLAC 24-bit).
+quality = "lossless"
+
+# Duración del fundido cruzado (crossfade) en segundos al estar habilitado (alternar con 'x' en el reproductor).
+# Por defecto: 5
+# Nota: El crossfade siempre inicia desactivado (OFF) al arrancar independientemente de este valor.
+crossfade = 5
+```
+
+### Opciones Disponibles:
+| Clave | Valores permitidos | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `quality` | `"low"`, `"high"`, `"lossless"`, `"max"` | `"lossless"` | Calidad deseada de streaming de audio. Intenta usar la calidad especificada siempre que se pueda, con degradación elegante si la cuenta o pista no la soportan. `"max"` requiere suscripción TIDAL Max. |
+| `crossfade` | entero (segundos) | `5` | Duración del fundido de salida y entrada en segundos al pasar entre pistas. Se activa y desactiva con la tecla `x`. Siempre inicia en `OFF` al arrancar. |
+
+---
+
 ## ⌨️ Guía de Teclas y Atajos
 
 ### En el Lanzador (`Super + T`):
@@ -127,7 +155,9 @@ windowrulev2 = center, class:^(tidal-player-tui)$
 | :--- | :--- |
 | `Espacio` | Alternar Reproducción / Pausa. |
 | `←` / `→` | Retroceder / Avanzar 5 segundos. |
+| `↑` / `↓` | Subir / Bajar volumen (±5%). |
 | `n` / `p` | Siguiente pista / Pista anterior en la cola. |
+| `x` | Alternar Crossfade (`ON` / `OFF`) en tiempo real. |
 | `q` | Salir del reproductor. |
 
 ---
