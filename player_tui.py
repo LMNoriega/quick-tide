@@ -1004,11 +1004,11 @@ class TidalPlayerTUI:
 
         if show_lyrics:
             if cols >= 120:
-                left_width = min(56, max(42, int(cols * 0.42)))
+                left_width = min(68, max(48, int(cols * 0.52)))
             elif cols >= 90:
-                left_width = min(48, max(38, int(cols * 0.45)))
+                left_width = min(56, max(42, int(cols * 0.50)))
             else:
-                left_width = min(42, max(34, int(cols * 0.48)))
+                left_width = min(46, max(36, int(cols * 0.48)))
             divider_col = left_width + 1
             right_col = left_width + 3
             right_width = max(10, cols - right_col - 1)
@@ -1022,34 +1022,70 @@ class TidalPlayerTUI:
         def clear_left(r: int):
             w(f"\033[{r};2H{' ' * (left_width - 1)}")
 
-        # Cálculo reactivo de la altura de la carátula según 'lines':
-        if lines >= 36:
-            art_h = min(16, max(8, lines // 3))
+        # Configuración reactiva: achicar CAVA y bajar el reproductor para darle máximo espacio a la carátula
+        if lines >= 32:
+            target_cava_h = 4
             has_gap = True
-        elif lines >= 28:
-            art_h = min(12, max(6, lines // 3 - 1))
+            show_cava = True
+        elif lines >= 25:
+            target_cava_h = 3
             has_gap = True
-        elif lines >= 22:
-            art_h = min(8, max(5, lines // 4))
-            has_gap = True
-        elif lines >= 17:
-            art_h = min(5, max(4, lines // 4))
+            show_cava = True
+        elif lines >= 20:
+            target_cava_h = 3
             has_gap = False
+            show_cava = True
         else:
-            art_h = 0  # Terminal muy compacta: ocultar carátula para priorizar texto y controles
+            target_cava_h = 0
             has_gap = False
+            show_cava = False
 
-        if art_h > 0:
-            art_w = min(left_width - 4, max(6, int(art_h * 2.1)))
-            art_x = max(2, (left_width - art_w) // 2)
-            art_y = 2 if lines >= 20 else 1
-            gap_art_text = 2 if (lines >= 28) else 1
-            text_start_row = art_y + art_h + gap_art_text
+        # Espacio reservado para la barra de atajos inferior
+        bottom_reserved = 3 if lines >= 20 else 1
+
+        if show_cava and target_cava_h > 0:
+            vis_bottom = lines - bottom_reserved
+            vis_top = vis_bottom - target_cava_h + 1
+            vis_height = target_cava_h
+            status_row = vis_top - 2  # Dejar 1 línea de respiro antes de CAVA
         else:
+            vis_bottom = 0
+            vis_top = 0
+            vis_height = 0
+            status_row = lines - bottom_reserved - 1
+
+        # El reproductor se posiciona más abajo (sobre CAVA):
+        # status_row: Controles (Play/Pausa y Pista xx/xx)
+        # prog_row: Barra de progreso (00:00 ━━━●─── 03:45)
+        # gap_row: Respiro visual
+        # artist_row: Artista y Badge
+        # title_row: Nombre de la canción
+        prog_row = status_row - 1
+        if has_gap and prog_row - 3 >= 2:
+            gap_row = prog_row - 1
+            artist_row = prog_row - 2
+            title_row = prog_row - 3
+        else:
+            has_gap = False
+            gap_row = None
+            artist_row = prog_row - 1
+            title_row = prog_row - 2
+
+        # La carátula se agranda ocupando todo el espacio ganado arriba
+        art_y = 2 if lines >= 20 else 1
+        gap_art_text = 2 if (lines >= 28) else 1
+        max_possible_art_h = title_row - gap_art_text - art_y
+
+        if max_possible_art_h >= 5:
+            # Mantener proporción cuadrada ~1:2 en celdas de terminal
+            max_h_by_width = int((left_width - 4) / 2.05)
+            art_h = min(24, max_possible_art_h, max_h_by_width)
+            art_w = min(left_width - 4, int(art_h * 2.05))
+            art_x = max(2, (left_width - art_w) // 2)
+        else:
+            art_h = 0
             art_w = 0
             art_x = 2
-            art_y = 1
-            text_start_row = 2
 
         if self.needs_full_redraw:
             w("\033_Ga=d,d=A\033\\")  # Eliminar imágenes Kitty previas de inmediato
@@ -1074,6 +1110,10 @@ class TidalPlayerTUI:
                 pass
             self._displayed_cover = None
 
+        # Limpiar filas entre la carátula y el título de la canción
+        for r in range(art_y + art_h, title_row):
+            clear_left(r)
+
         # ================= METADATOS (COLUMNA IZQUIERDA) =================
         track = self.current_track or {}
         title = track.get("name", "Ninguna canción cargada")
@@ -1081,19 +1121,8 @@ class TidalPlayerTUI:
         styled_badge, badge_len = self.get_quality_badge()
 
         # Fila 1: Nombre del tema (arriba en negrita, jerarquía principal completa)
-        title_row = text_start_row
         clear_left(title_row)
         w(f"\033[{title_row};2H{BOLD}{COLOR_TEXT}{title[:left_width-4]}{RESET}")
-
-        # Filas dinámicas: separar un poco el badge y artista de la duración de la canción
-        artist_row = text_start_row + 1
-        if has_gap:
-            clear_left(text_start_row + 2)
-            prog_row = text_start_row + 3
-            status_row = text_start_row + 4
-        else:
-            prog_row = text_start_row + 2
-            status_row = text_start_row + 3
 
         pos_str = tidal_backend.format_duration(self.position)
         dur_str = tidal_backend.format_duration(self.duration)
@@ -1113,6 +1142,9 @@ class TidalPlayerTUI:
         clear_left(artist_row)
         w(f"\033[{artist_row};2H{COLOR_SUBTEXT1}{artist[:max_artist_len]}{RESET}")
         w(f"\033[{artist_row};{badge_col}H{styled_badge}")
+
+        if gap_row:
+            clear_left(gap_row)
 
         # Fila de Barra de progreso
         clear_left(prog_row)
@@ -1135,11 +1167,7 @@ class TidalPlayerTUI:
         clear_left(status_row + 1)
 
         # ================= VISUALIZADOR DE AUDIO (TIPO CAVA) =================
-        vis_top = status_row + 2
-        vis_bottom = lines - 4 if lines >= 20 else lines - 1
-        vis_height = vis_bottom - vis_top + 1
-
-        if vis_height >= 2 and left_width >= 16:
+        if show_cava and vis_height >= 2 and left_width >= 16:
             num_bars = max(4, (left_width - 6) // 3)
             total_bars_width = num_bars * 3
             vis_x = max(2, (left_width - total_bars_width) // 2 + 2)
