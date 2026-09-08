@@ -156,7 +156,6 @@ crossfade = 5
 | :--- | :--- |
 | `Espacio` | Alternar Reproducción / Pausa. |
 | `←` / `→` | Retroceder / Avanzar 5 segundos. |
-| `↑` / `↓` | Subir / Bajar volumen (±5%). |
 | `n` / `p` | Siguiente pista / Pista anterior en la cola. |
 | `x` | Alternar Crossfade (`ON` / `OFF`) en tiempo real. |
 | `q` | Salir del reproductor. |
@@ -164,7 +163,7 @@ crossfade = 5
 ---
 
 ## 💡 Agradecimientos y Créditos
-- **[low-tide](https://github.com/mrusme/low-tide)** por la integración con OAuth y `tidalapi`.
+- **[low-tide](https://github.com/pauljhdrake/low-tide)** por la integración con OAuth y `tidalapi`.
 - **[LRCLIB](https://lrclib.net/)** por la base de datos libre y abierta de letras sincronizadas.
 - **[CAVA](https://github.com/karlstav/cava)** por el motor de visualización de audio.
 - **[Serpantinum](https://github.com)** por la paleta de colores y estética general.
