@@ -37,11 +37,10 @@
 <!-- Pega tu enlace de user-attachments en el atributo 'src' a continuación: -->
 <!-- ================================================================= -->
 
-<video src="TU_ENLACE_DE_USER_ATTACHMENTS_AQUI" controls width="100%" poster="assets/media/preview.jpg">
+<video src="https://github.com/user-attachments/assets/2c2eba3f-6c0c-47c4-a944-91da89edce4c" controls width="100%" poster="assets/media/preview.jpg">
   Tu navegador no soporta el tag de video. Puedes ver o descargar el video directamente en <a href="assets/media/demo.mp4">assets/media/demo.mp4</a>.
 </video>
 
-> 🎥 **[Haz clic aquí para ver o descargar el video de demostración (demo.mp4)](assets/media/demo.mp4)**:
 > Podrás apreciar la invocación flotante `Super + T`, la animación pop-in de búsqueda en tiempo real, la terminal TUI en Kitty con carátula en alta definición, las barras del espectro CAVA conectadas a PipeWire, las letras 3D sincronizadas con LRCLIB, el fundido simultáneo Equal-Power y el scrobbling instantáneo en Last.fm.
 
 ---
