@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Quick-Tide Player
+GenericName=Tidal Terminal Music Player
+Comment=Reproductor TUI de Tidal en terminal con carátulas y CAVA
+Exec=kitty --class tidal-player-tui --title "Tidal - Player" tidal-player-tui
+Icon=audio-player
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=tidal-player-tui
+Keywords=tidal;music;tui;cava;lyrics;player;

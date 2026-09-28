@@ -22,9 +22,37 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtQml import QQmlApplicationEngine
 from PyQt6.QtCore import QObject, pyqtSlot, pyqtProperty, pyqtSignal, QUrl, QTimer
 
-SERP_DIR = os.path.expanduser("~/.local/share/serpantinum")
 SERP_STATE = os.path.expanduser("~/.local/state/serpantinum")
 PLAYER_SOCKET = "/tmp/tidal-player.sock"
+
+_audio_player_cmd = None
+
+
+def get_audio_player():
+    global _audio_player_cmd
+    if _audio_player_cmd is not None:
+        return _audio_player_cmd
+    import shutil
+    for p in ["pw-play", "paplay", "aplay"]:
+        if shutil.which(p):
+            _audio_player_cmd = p
+            return _audio_player_cmd
+    _audio_player_cmd = ""
+    return _audio_player_cmd
+
+
+def get_sound_path(rel_path: str):
+    candidates = [
+        os.path.join(SHARE_DIR, "assets", "sounds", rel_path),
+        os.path.join(SHARE_DIR, "sounds", rel_path),
+        os.path.expanduser(f"~/.local/share/quick-tide/sounds/{rel_path}"),
+        os.path.expanduser(f"~/.local/share/tidal-gui/sounds/{rel_path}"),
+        os.path.expanduser(f"~/.local/share/serpantinum/src/assets/sounds/{rel_path}"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
 
 
 def get_serpantinum_theme():
@@ -57,11 +85,14 @@ def get_serpantinum_theme():
 
 
 def play_sfx(rel_path):
-    sound_file = os.path.join(SERP_DIR, "src/assets/sounds", rel_path)
-    if os.path.isfile(sound_file):
+    sound_file = get_sound_path(rel_path)
+    if not sound_file:
+        return
+    player = get_audio_player()
+    if player:
         try:
             subprocess.Popen(
-                ["pw-play", sound_file],
+                [player, sound_file],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )

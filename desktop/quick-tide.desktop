@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Quick-Tide
+GenericName=Tidal Search Launcher
+Comment=Lanzador flotante y buscador Hi-Fi para Tidal
+Exec=tidal-search-gui
+Icon=multimedia-audio-player
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=tidal-search-gui
+Keywords=tidal;music;audio;flac;streaming;hi-fi;
