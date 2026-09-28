@@ -1,6 +1,48 @@
-# 🌊 Quick-Tide (Tidal Serpantinum Suite)
+# 🌊 Quick-Tide (Tidal Hi-Fi Suite)
 
-> Lanzador flotante de búsqueda rápida y reproductor de música Hi-Fi en terminal con carátulas nativas en Kitty, visualizador PipeWire CAVA, letras sincronizadas con fallback a LRCLIB y estética Serpantinum / Liquid Glass para Linux (Hyprland / Wayland).
+<p align="center">
+  <img src="assets/media/preview.jpg" alt="Quick-Tide Hi-Fi - Vista Previa" width="100%">
+</p>
+
+<p align="center">
+  <b>Quick-Tide</b>: lanzador flotante y reproductor TUI de alta fidelidad para Tidal en Arch Linux y Hyprland.
+  <br>
+  <i>Audio sin pérdidas FLAC / Hi-Res, visualizador de audio en tiempo real con CAVA, letras sincronizadas con LRCLIB, crossfade simultáneo de doble deck y scrobbling nativo con Last.fm. 🎧✨</i>
+</p>
+
+<p align="center">
+  <a href="assets/media/demo.mp4">
+    <img src="https://img.shields.io/badge/▶_Ver_Video-Demostración_(MP4)-e9b5ef?style=for-the-badge&logoColor=110d11" alt="Ver Video de Demostración">
+  </a>
+  <a href="https://archlinux.org">
+    <img src="https://img.shields.io/badge/Arch_Linux-100%25_Compatible-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" alt="Arch Linux">
+  </a>
+  <a href="https://last.fm">
+    <img src="https://img.shields.io/badge/Last.fm-Scrobbling_Nativo-d51007?style=for-the-badge&logo=lastdotfm&logoColor=white" alt="Last.fm">
+  </a>
+  <a href="https://sw.kovidgoyal.net/kitty/">
+    <img src="https://img.shields.io/badge/Kitty_Graphics-Protocol-f5b7b0?style=for-the-badge&logoColor=110d11" alt="Kitty">
+  </a>
+  <a href="https://pipewire.org">
+    <img src="https://img.shields.io/badge/PipeWire-CAVA_35_FPS-00d2ff?style=for-the-badge&logoColor=110d11" alt="PipeWire">
+  </a>
+</p>
+
+---
+
+## 🎬 Demostración en Video
+
+<!-- ================================================================= -->
+<!-- REPRODUCTOR DE VIDEO NATIVO DE GITHUB (USER-ATTACHMENTS)          -->
+<!-- Pega tu enlace de user-attachments en el atributo 'src' a continuación: -->
+<!-- ================================================================= -->
+
+<video src="TU_ENLACE_DE_USER_ATTACHMENTS_AQUI" controls width="100%" poster="assets/media/preview.jpg">
+  Tu navegador no soporta el tag de video. Puedes ver o descargar el video directamente en <a href="assets/media/demo.mp4">assets/media/demo.mp4</a>.
+</video>
+
+> 🎥 **[Haz clic aquí para ver o descargar el video de demostración (demo.mp4)](assets/media/demo.mp4)**:
+> Podrás apreciar la invocación flotante `Super + T`, la animación pop-in de búsqueda en tiempo real, la terminal TUI en Kitty con carátula en alta definición, las barras del espectro CAVA conectadas a PipeWire, las letras 3D sincronizadas con LRCLIB, el fundido simultáneo Equal-Power y el scrobbling instantáneo en Last.fm.
 
 ---
 

@@ -10,3 +10,5 @@ venv/
 *.swp
 *.swo
 .DS_Store
+brag-output/
+.agents/

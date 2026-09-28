@@ -1,0 +1,1 @@
+Quick-Tide (Tidal Hi-Fi Suite): un reproductor TUI y lanzador flotante para Tidal en Arch Linux con audio Hi-Res FLAC, visualizador CAVA en tiempo real, letras sincronizadas con LRCLIB, crossfade simultáneo de doble deck y scrobbling nativo con Last.fm. 🎧✨
