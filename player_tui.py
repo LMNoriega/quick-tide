@@ -39,7 +39,9 @@ for p in [SHARE_DIR, LOWTIDE_DIR] + venv_site_pkgs:
     if os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
 
+import config
 import tidal_backend
+from scrobbler import QuickTideScrobbler, test_lastfm_credentials
 
 # Import dbus-next for native MPRIS2 desktop integration
 from dbus_next.aio import MessageBus
@@ -161,6 +163,9 @@ class TidalMprisPlayer(ServiceInterface):
         super().__init__("org.mpris.MediaPlayer2.Player")
         self.player = player
         self._playback_status = "Stopped"
+        self._loop_status = "None"
+        self._rate = 1.0
+        self._shuffle = False
         self._position = 0
         self._volume = 0.8
         self._metadata: dict = {}
@@ -168,6 +173,31 @@ class TidalMprisPlayer(ServiceInterface):
     @dbus_property(access=PropertyAccess.READ)
     def PlaybackStatus(self) -> "s":
         return self._playback_status
+
+    @dbus_property(access=PropertyAccess.READWRITE)
+    def LoopStatus(self) -> "s":
+        return self._loop_status
+
+    @LoopStatus.setter
+    def LoopStatus(self, val: "s"):
+        if val in ("None", "Track", "Playlist"):
+            self._loop_status = val
+
+    @dbus_property(access=PropertyAccess.READWRITE)
+    def Rate(self) -> "d":
+        return self._rate
+
+    @Rate.setter
+    def Rate(self, val: "d"):
+        self._rate = 1.0
+
+    @dbus_property(access=PropertyAccess.READWRITE)
+    def Shuffle(self) -> "b":
+        return self._shuffle
+
+    @Shuffle.setter
+    def Shuffle(self, val: "b"):
+        self._shuffle = bool(val)
 
     @dbus_property(access=PropertyAccess.READ)
     def Metadata(self) -> "a{sv}":
@@ -177,9 +207,23 @@ class TidalMprisPlayer(ServiceInterface):
     def Position(self) -> "x":
         return self._position
 
-    @dbus_property(access=PropertyAccess.READ)
+    @dbus_property(access=PropertyAccess.READWRITE)
     def Volume(self) -> "d":
         return self._volume
+
+    @Volume.setter
+    def Volume(self, val: "d"):
+        clamped = max(0.0, min(1.0, float(val)))
+        self._volume = clamped
+        self.player.set_volume(int(round(clamped * 100)))
+
+    @dbus_property(access=PropertyAccess.READ)
+    def MinimumRate(self) -> "d":
+        return 1.0
+
+    @dbus_property(access=PropertyAccess.READ)
+    def MaximumRate(self) -> "d":
+        return 1.0
 
     @dbus_property(access=PropertyAccess.READ)
     def CanControl(self) -> "b":
@@ -204,6 +248,10 @@ class TidalMprisPlayer(ServiceInterface):
     @dbus_property(access=PropertyAccess.READ)
     def CanSeek(self) -> "b":
         return True
+
+    @dbus_signal()
+    def Seeked(self, position: "x") -> "x":
+        return position
 
     @method()
     def PlayPause(self):
@@ -233,11 +281,14 @@ class TidalMprisPlayer(ServiceInterface):
 
     @method()
     def Seek(self, offset_us: "x"):
-        self.player.mpv.seek(offset_us / 1_000_000.0)
+        self.player.seek_relative(offset_us / 1_000_000.0)
 
     @method()
     def SetPosition(self, track_id: "o", pos_us: "x"):
-        self.player.mpv.command("set_property", "time-pos", pos_us / 1_000_000.0)
+        curr_track = self._metadata.get("mpris:trackid")
+        if curr_track and getattr(curr_track, "value", None) != track_id:
+            return
+        self.player.seek_absolute(pos_us / 1_000_000.0)
 
 
 class TidalMprisService:
@@ -272,6 +323,9 @@ class TidalMprisService:
         await self.bus.request_name("org.mpris.MediaPlayer2.tidal")
 
     def update_track(self, track: dict, cover_path: str = ""):
+        self.new_track(track, cover_path)
+
+    def new_track(self, track: dict, cover_path: str = ""):
         if not self.player_iface or not self.loop:
             return
         try:
@@ -298,14 +352,45 @@ class TidalMprisService:
                 "xesam:artist": Variant("as", [artist] if artist else []),
                 "xesam:album": Variant("s", album),
             }
+            # Resetear la posición explícitamente a 0 para el nuevo tema
+            self.player_iface._position = 0
             self.player_iface._metadata = meta
             self.player_iface._playback_status = "Playing"
-            self.loop.call_soon_threadsafe(
-                self.player_iface.emit_properties_changed,
-                {"Metadata": meta, "PlaybackStatus": "Playing"}
-            )
+
+            def _emit():
+                self.player_iface.emit_properties_changed(
+                    {"Metadata": meta, "PlaybackStatus": "Playing"}
+                )
+                self.player_iface.Seeked(0)
+
+            self.loop.call_soon_threadsafe(_emit)
         except Exception as e:
             log.warning("Error actualizando metadatos MPRIS: %s", e)
+
+    def update_cover_art(self, cover_path: str):
+        if not self.player_iface or not self.loop or not self.player_iface._metadata:
+            return
+        try:
+            if not cover_path or not os.path.isfile(cover_path):
+                return
+            art_url = f"file://{cover_path}"
+            meta = dict(self.player_iface._metadata)
+            meta["mpris:artUrl"] = Variant("s", art_url)
+            self.player_iface._metadata = meta
+
+            self.loop.call_soon_threadsafe(
+                self.player_iface.emit_properties_changed,
+                {"Metadata": meta}
+            )
+        except Exception as e:
+            log.warning("Error actualizando carátula MPRIS: %s", e)
+
+    def seeked(self, pos_s: float):
+        if not self.player_iface or not self.loop:
+            return
+        pos_us = max(0, int(pos_s * 1_000_000))
+        self.player_iface._position = pos_us
+        self.loop.call_soon_threadsafe(self.player_iface.Seeked, pos_us)
 
     def update_playback_status(self, is_paused: bool):
         if not self.player_iface or not self.loop:
@@ -354,6 +439,8 @@ class MpvProcess:
         self.proc: Optional[subprocess.Popen] = None
         self.sock: Optional[socket.socket] = None
         self._lock = threading.RLock()
+        self._req_id = 0
+        self._recv_buf = ""
         self.start()
 
     def start(self):
@@ -386,7 +473,7 @@ class MpvProcess:
 
         try:
             self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.sock.settimeout(0.4)
+            self.sock.settimeout(0.25)
             self.sock.connect(self.sock_path)
         except Exception as e:
             log.error("No se pudo conectar al socket IPC de MPV: %s", e)
@@ -396,21 +483,38 @@ class MpvProcess:
             if not self.sock:
                 return None
             try:
-                payload = json.dumps({"command": list(args)}) + "\n"
+                self._req_id = (self._req_id + 1) & 0x7FFFFFFF
+                req_id = self._req_id
+                payload = json.dumps({"command": list(args), "request_id": req_id}) + "\n"
                 self.sock.sendall(payload.encode("utf-8"))
-                buf = ""
-                while True:
-                    chunk = self.sock.recv(4096).decode("utf-8")
-                    if not chunk:
-                        break
-                    buf += chunk
-                    for line in buf.splitlines():
+
+                start_t = time.monotonic()
+                while time.monotonic() - start_t < 0.35:
+                    while "\n" in self._recv_buf:
+                        line, self._recv_buf = self._recv_buf.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
                         try:
                             data = json.loads(line)
-                            if "data" in data or "error" in data:
+                            if data.get("request_id") == req_id:
                                 return data.get("data")
-                        except Exception:
-                            pass
+                        except ValueError:
+                            continue
+
+                    try:
+                        chunk = self.sock.recv(4096)
+                        if not chunk:
+                            try:
+                                self.sock.close()
+                            except Exception:
+                                pass
+                            self.sock = None
+                            return None
+                        self._recv_buf += chunk.decode("utf-8", errors="replace")
+                    except (socket.timeout, BlockingIOError):
+                        break
+                return None
             except Exception:
                 return None
 
@@ -446,9 +550,12 @@ class MpvProcess:
         if self.proc:
             try:
                 self.proc.terminate()
-                self.proc.wait(timeout=1.0)
+                self.proc.wait(timeout=0.4)
             except Exception:
-                pass
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
             self.proc = None
         if os.path.exists(self.sock_path):
             try:
@@ -484,6 +591,7 @@ class CavaVisualizer:
         self.energy_target = 0.8
         self.ceilings = [max(0.4, 1.0 - (i / max(1, num_bars)) * 0.55) for i in range(num_bars)]
         self.rise_rates = [0.45 + (i / max(1, num_bars)) * 0.20 for i in range(num_bars)]
+        self._decay_factors = [1.0 / (1.6 ** d) for d in range(num_bars)]
         self._last_real_audio = 0.0
 
     def resize(self, num_bars: int, max_height: int):
@@ -499,6 +607,7 @@ class CavaVisualizer:
             self.pk_vel = [0.0] * self.num_bars
             self.ceilings = [max(0.4, 1.0 - (i / max(1, self.num_bars)) * 0.55) for i in range(self.num_bars)]
             self.rise_rates = [0.45 + (i / max(1, self.num_bars)) * 0.20 for i in range(self.num_bars)]
+            self._decay_factors = [1.0 / (1.6 ** d) for d in range(self.num_bars)]
 
     def set_bpm(self, bpm: float | None):
         self.bpm = float(bpm) if bpm and 50 <= bpm <= 220 else 120.0
@@ -586,14 +695,17 @@ class CavaVisualizer:
 
     def _smooth_monstercat(self, values: list[float]) -> list[float]:
         out = list(values)
-        factor = 1.6
-        for i in range(self.num_bars):
-            for j in range(self.num_bars):
-                dist = abs(i - j)
-                if dist > 0:
-                    contrib = values[j] / (factor ** dist)
-                    if contrib > out[i]:
-                        out[i] = contrib
+        decays = self._decay_factors
+        n = self.num_bars
+        for i in range(n):
+            curr = out[i]
+            for j in range(n):
+                if i != j:
+                    dist = abs(i - j)
+                    contrib = values[j] * decays[dist]
+                    if contrib > curr:
+                        curr = contrib
+            out[i] = curr
         return out
 
     def render_rows(self) -> list[str]:
@@ -682,12 +794,15 @@ frame_delimiter = 10
                     break
                 parts = [p for p in line.strip().split(";") if p]
                 if parts:
-                    vals = [min(1.0, max(0.0, float(x) / 100.0)) for x in parts[:self.bars]]
-                    if len(vals) < self.bars:
-                        vals += [0.0] * (self.bars - len(vals))
-                    with self._lock:
-                        self.latest_norm = vals
-                        self.last_update = time.time()
+                    try:
+                        vals = [min(1.0, max(0.0, float(x) / 100.0)) for x in parts[:self.bars]]
+                        if len(vals) < self.bars:
+                            vals += [0.0] * (self.bars - len(vals))
+                        with self._lock:
+                            self.latest_norm = vals
+                            self.last_update = time.time()
+                    except ValueError:
+                        continue
         except Exception as e:
             log.warning("Cava pipewire reader no disponible: %s", e)
 
@@ -700,9 +815,12 @@ frame_delimiter = 10
         if self.proc:
             try:
                 self.proc.terminate()
-                self.proc.wait(timeout=0.5)
+                self.proc.wait(timeout=0.4)
             except Exception:
-                pass
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
             self.proc = None
 
 
@@ -752,10 +870,16 @@ class TidalPlayerTUI:
         self._xfade_duration: float = 5.0
         self._xfade_elapsed: float = 0.0
         self._incoming_track: Optional[Dict[str, Any]] = None
+        self._last_out_vol = -1
+        self._last_in_vol = -1
+        self._load_gen = 0
 
         # Iniciar servicio MPRIS2 D-Bus
         self.mpris = TidalMprisService(self)
         self.mpris.start()
+
+        # Inicializar Scrobbler nativo de Last.fm
+        self.scrobbler = QuickTideScrobbler(self.config.get("lastfm", {}))
 
         # Configurar volumen inicial en ambos decks
         self.deck_a.set_volume(self.volume)
@@ -820,25 +944,27 @@ class TidalPlayerTUI:
             pass
 
     def load_selection(self, item_type: str, item_id: Any, start_idx: int = 0):
+        self._load_gen += 1
+        gen = self._load_gen
+
+        # Obtener pistas desde la API fuera del lock para no congelar la UI
+        if item_type == "album":
+            tracks = tidal_backend.get_album_tracks(int(item_id))
+        elif item_type == "playlist":
+            tracks = tidal_backend.get_playlist_tracks(str(item_id))
+        else:
+            t = tidal_backend.get_track_details(int(item_id))
+            tracks = [t] if t else []
+
+        if not tracks or gen != self._load_gen:
+            return
+
         with self._cmd_lock:
-            if item_type == "album":
-                tracks = tidal_backend.get_album_tracks(int(item_id))
-                if tracks:
-                    self.queue = tracks
-                    self.current_idx = max(0, min(start_idx, len(tracks) - 1))
-                    self.play_track(self.queue[self.current_idx])
-            elif item_type == "playlist":
-                tracks = tidal_backend.get_playlist_tracks(str(item_id))
-                if tracks:
-                    self.queue = tracks
-                    self.current_idx = max(0, min(start_idx, len(tracks) - 1))
-                    self.play_track(self.queue[self.current_idx])
-            else:
-                track = tidal_backend.get_track_details(int(item_id))
-                if track:
-                    self.queue = [track]
-                    self.current_idx = 0
-                    self.play_track(track)
+            if gen != self._load_gen:
+                return
+            self.queue = tracks
+            self.current_idx = max(0, min(start_idx, len(tracks) - 1))
+            self.play_track(self.queue[self.current_idx])
 
     def play_track(self, track: Dict[str, Any]):
         with self._cmd_lock:
@@ -848,6 +974,8 @@ class TidalPlayerTUI:
                 self.is_crossfading = False
                 self._incoming_track = None
                 self._xfade_elapsed = 0.0
+                self._last_out_vol = -1
+                self._last_in_vol = -1
 
             self.current_track = track
             self.position = 0.0
@@ -872,6 +1000,9 @@ class TidalPlayerTUI:
             # Cargar carátula, letras, MPRIS y precargar el próximo tema
             self._load_track_sidecars(track)
 
+            # Notificar inicio de reproducción a Last.fm
+            self.scrobbler.on_track_started(track)
+
     def _load_track_sidecars(self, track: Dict[str, Any]):
         # Descarga de carátula
         cover_url = track.get("cover_url")
@@ -880,10 +1011,11 @@ class TidalPlayerTUI:
         def _cover_downloader():
             c_path = tidal_backend.download_cover(cover_url, key)
             self.current_cover_path = c_path
-            self.mpris.update_track(track, c_path)
+            self.mpris.update_cover_art(c_path)
 
         threading.Thread(target=_cover_downloader, daemon=True).start()
-        self.mpris.update_track(track, "")
+        # Notificar tema nuevo inmediatamente con posición en 0
+        self.mpris.new_track(track, "")
 
         # Letras en segundo plano
         self.lyrics_synced = []
@@ -946,6 +1078,8 @@ class TidalPlayerTUI:
             self.is_crossfading = True
             self._xfade_duration = min(float(self.crossfade_duration), max(1.0, remaining))
             self._xfade_elapsed = 0.0
+            self._last_out_vol = -1
+            self._last_in_vol = -1
 
             # Cargar tema siguiente en el deck secundario e iniciar reproducción en volumen 0
             self.standby_deck.set_volume(0)
@@ -976,6 +1110,8 @@ class TidalPlayerTUI:
             self.is_crossfading = False
             self._incoming_track = None
             self._xfade_elapsed = 0.0
+            self._last_out_vol = -1
+            self._last_in_vol = -1
 
             # 6. Sincronizar posición y duración
             in_pos = self.active_deck.get_property("time-pos")
@@ -986,15 +1122,64 @@ class TidalPlayerTUI:
             self._last_badge_check = 0.0
             self._last_mpv_poll = 0.0
 
-            # 7. Cargar metadatos, letras y carátula del nuevo tema
+            # 7. Cargar metadatos, letras y carátula del nuevo tema y sincronizar MPRIS
             self._load_track_sidecars(new_track)
+            self.mpris.update_position(self.position)
+            self.mpris.seeked(self.position)
+
+            # Notificar nuevo tema a Last.fm
+            self.scrobbler.on_track_started(new_track)
 
     def toggle_pause(self):
-        self.active_deck.toggle_pause()
-        if self.is_crossfading:
-            self.standby_deck.toggle_pause()
-        self.is_paused = not self.is_paused
-        self.mpris.update_playback_status(self.is_paused)
+        with self._cmd_lock:
+            self.active_deck.toggle_pause()
+            if self.is_crossfading:
+                self.standby_deck.toggle_pause()
+            self.is_paused = not self.is_paused
+            self.mpris.update_playback_status(self.is_paused)
+
+    def set_volume(self, volume_pct: int):
+        with self._cmd_lock:
+            self.volume = max(0, min(100, int(volume_pct)))
+            if not self.is_crossfading:
+                self.active_deck.set_volume(self.volume)
+            self.mpris.update_volume(self.volume)
+
+    def seek_relative(self, offset_s: float):
+        with self._cmd_lock:
+            if self.is_crossfading:
+                if offset_s > 0:
+                    self._complete_crossfade()
+                else:
+                    self.standby_deck.stop_playback()
+                    self.standby_deck.set_volume(0)
+                    self.active_deck.set_volume(self.volume)
+                    self.is_crossfading = False
+                    self._incoming_track = None
+                    self._xfade_elapsed = 0.0
+                    self._last_out_vol = -1
+                    self._last_in_vol = -1
+            self.active_deck.seek(offset_s)
+            self.position = max(0.0, min(self.duration, self.position + offset_s))
+            self._last_mpv_poll = 0.0
+            self.mpris.seeked(self.position)
+
+    def seek_absolute(self, pos_s: float):
+        with self._cmd_lock:
+            if self.is_crossfading:
+                self.standby_deck.stop_playback()
+                self.standby_deck.set_volume(0)
+                self.active_deck.set_volume(self.volume)
+                self.is_crossfading = False
+                self._incoming_track = None
+                self._xfade_elapsed = 0.0
+                self._last_out_vol = -1
+                self._last_in_vol = -1
+            target_pos = max(0.0, min(self.duration, pos_s))
+            self.active_deck.command("set_property", "time-pos", target_pos)
+            self.position = target_pos
+            self._last_mpv_poll = 0.0
+            self.mpris.seeked(self.position)
 
     def next_track(self):
         with self._cmd_lock:
@@ -1014,10 +1199,11 @@ class TidalPlayerTUI:
                 self.is_crossfading = False
                 self._incoming_track = None
                 self._xfade_elapsed = 0.0
+                self._last_out_vol = -1
+                self._last_in_vol = -1
             if self.queue:
                 if self.position > 3.0:
-                    self.active_deck.seek(-self.position)
-                    self.position = 0.0
+                    self.seek_absolute(0.0)
                 elif self.current_idx > 0:
                     self.current_idx -= 1
                     self.play_track(self.queue[self.current_idx])
@@ -1302,6 +1488,14 @@ class TidalPlayerTUI:
         center_col = max(2, left_width // 2)
         w(f"\033[{status_row};{center_col}H{status_icon}")
 
+        # Indicador visual discreto de Last.fm a la izquierda
+        if self.scrobbler.enabled:
+            lfm_text, lfm_col_key = self.scrobbler.get_ui_indicator()
+            if lfm_text and center_col > 6:
+                lfm_color = fg_color(lfm_col_key) if lfm_col_key else COLOR_SUBTEXT1
+                max_lfm_len = max(4, center_col - 4)
+                w(f"\033[{status_row};2H{lfm_color}{lfm_text[:max_lfm_len]}{RESET}")
+
         if queue_pos:
             q_text = queue_pos if left_width >= 42 else f"{self.current_idx + 1}/{len(self.queue)}"
             queue_col = max(center_col + 4, right_edge - len(q_text) + 1)
@@ -1459,6 +1653,8 @@ class TidalPlayerTUI:
                 self.position += dt
             if self.is_crossfading:
                 self._xfade_elapsed += dt
+            # Evaluar y registrar scrobble en Last.fm si corresponde
+            self.scrobbler.update(self.position, self.duration)
 
         # 2. Si hay crossfade en curso, calcular y aplicar curva Equal-Power a ambos decks
         if self.is_crossfading and self._xfade_duration > 0:
@@ -1475,8 +1671,13 @@ class TidalPlayerTUI:
             out_vol = max(0, min(100, int(round(self.volume * out_factor))))
             in_vol = max(0, min(100, int(round(self.volume * in_factor))))
 
-            self.active_deck.set_volume(out_vol)
-            self.standby_deck.set_volume(in_vol)
+            if out_vol != self._last_out_vol:
+                self.active_deck.set_volume(out_vol)
+                self._last_out_vol = out_vol
+
+            if in_vol != self._last_in_vol:
+                self.standby_deck.set_volume(in_vol)
+                self._last_in_vol = in_vol
 
             if progress >= 1.0:
                 self._complete_crossfade()
@@ -1535,105 +1736,89 @@ class TidalPlayerTUI:
         frame_interval = 1.0 / target_fps
         last_draw = time.time()
 
-        while self.running:
-            now = time.time()
-            elapsed = now - last_draw
-            time_to_wait = max(0.001, frame_interval - elapsed)
+        try:
+            while self.running:
+                now = time.time()
+                elapsed = now - last_draw
+                time_to_wait = max(0.001, frame_interval - elapsed)
 
-            # Manejar pulsaciones de teclado no bloqueantes sin buffering de Python
-            fd = sys.stdin.fileno()
-            r, _, _ = select.select([fd], [], [], min(0.015, time_to_wait))
-            if r:
-                try:
-                    raw = os.read(fd, 64)
-                except Exception:
-                    raw = b""
+                # Manejar pulsaciones de teclado no bloqueantes sin buffering de Python
+                fd = sys.stdin.fileno()
+                r, _, _ = select.select([fd], [], [], min(0.015, time_to_wait))
+                if r:
+                    try:
+                        raw = os.read(fd, 64)
+                    except Exception:
+                        raw = b""
 
-                if not raw:
-                    continue
+                    if not raw:
+                        continue
 
-                # Si sólo llegó el byte de escape \x1b, esperar brevemente a los bytes siguientes de la secuencia
-                if raw == b"\x1b":
-                    r2, _, _ = select.select([fd], [], [], 0.04)
-                    if r2:
-                        try:
-                            raw += os.read(fd, 64)
-                        except Exception:
-                            pass
+                    # Si sólo llegó el byte de escape \x1b, esperar brevemente a los bytes siguientes de la secuencia
+                    if raw == b"\x1b":
+                        r2, _, _ = select.select([fd], [], [], 0.04)
+                        if r2:
+                            try:
+                                raw += os.read(fd, 64)
+                            except Exception:
+                                pass
 
-                if raw in (b"q", b"Q", b"\x03"):
-                    self.running = False
-                    break
-                elif b" " in raw:
-                    self.toggle_pause()
-                    self._last_mpv_poll = 0.0
-                elif raw in (b"n", b"N"):
-                    self.next_track()
-                    self._last_mpv_poll = 0.0
-                elif raw in (b"p", b"P"):
-                    self.prev_track()
-                    self._last_mpv_poll = 0.0
-                elif raw.startswith(b"\x1b") and (raw.endswith(b"C") or raw.endswith(b"c")):
-                    # Flecha derecha (+5s)
-                    if self.is_crossfading:
-                        self._complete_crossfade()
-                    else:
-                        self.active_deck.seek(5)
-                        self.position = min(self.duration, self.position + 5.0)
-                    self._last_mpv_poll = 0.0
-                elif raw.startswith(b"\x1b") and (raw.endswith(b"D") or raw.endswith(b"d")):
-                    # Flecha izquierda (-5s)
-                    if self.is_crossfading:
-                        self.standby_deck.stop_playback()
-                        self.standby_deck.set_volume(0)
-                        self.active_deck.set_volume(self.volume)
-                        self.is_crossfading = False
-                        self._incoming_track = None
-                        self._xfade_elapsed = 0.0
-                    self.active_deck.seek(-5)
-                    self.position = max(0.0, self.position - 5.0)
-                    self._last_mpv_poll = 0.0
-                elif raw in (b"x", b"X"):
-                    self.crossfade_enabled = not self.crossfade_enabled
-                    if not self.crossfade_enabled and self.is_crossfading:
-                        self.standby_deck.stop_playback()
-                        self.standby_deck.set_volume(0)
-                        self.active_deck.set_volume(self.volume)
-                        self.is_crossfading = False
-                        self._incoming_track = None
-                        self._xfade_elapsed = 0.0
-                    self.needs_full_redraw = True
-                elif raw.startswith(b"\x1b") and (raw.endswith(b"A") or raw.endswith(b"a")):
-                    # Flecha arriba (+5 vol)
-                    self.volume = min(100, self.volume + 5)
-                    if not self.is_crossfading:
-                        self.active_deck.set_volume(self.volume)
-                    self.mpris.update_volume(self.volume)
-                elif raw.startswith(b"\x1b") and (raw.endswith(b"B") or raw.endswith(b"b")):
-                    # Flecha abajo (-5 vol)
-                    self.volume = max(0, self.volume - 5)
-                    if not self.is_crossfading:
-                        self.active_deck.set_volume(self.volume)
-                    self.mpris.update_volume(self.volume)
+                    if raw in (b"q", b"Q", b"\x03"):
+                        self.running = False
+                        break
+                    elif b" " in raw:
+                        self.toggle_pause()
+                        self._last_mpv_poll = 0.0
+                    elif raw in (b"n", b"N"):
+                        self.next_track()
+                        self._last_mpv_poll = 0.0
+                    elif raw in (b"p", b"P"):
+                        self.prev_track()
+                        self._last_mpv_poll = 0.0
+                    elif raw.startswith(b"\x1b") and (raw.endswith(b"C") or raw.endswith(b"c")):
+                        # Flecha derecha (+5s)
+                        self.seek_relative(5.0)
+                    elif raw.startswith(b"\x1b") and (raw.endswith(b"D") or raw.endswith(b"d")):
+                        # Flecha izquierda (-5s)
+                        self.seek_relative(-5.0)
+                    elif raw in (b"x", b"X"):
+                        with self._cmd_lock:
+                            self.crossfade_enabled = not self.crossfade_enabled
+                            if not self.crossfade_enabled and self.is_crossfading:
+                                self.standby_deck.stop_playback()
+                                self.standby_deck.set_volume(0)
+                                self.active_deck.set_volume(self.volume)
+                                self.is_crossfading = False
+                                self._incoming_track = None
+                                self._xfade_elapsed = 0.0
+                                self._last_out_vol = -1
+                                self._last_in_vol = -1
+                        self.needs_full_redraw = True
+                    elif raw.startswith(b"\x1b") and (raw.endswith(b"A") or raw.endswith(b"a")):
+                        # Flecha arriba (+5 vol)
+                        self.set_volume(self.volume + 5)
+                    elif raw.startswith(b"\x1b") and (raw.endswith(b"B") or raw.endswith(b"b")):
+                        # Flecha abajo (-5 vol)
+                        self.set_volume(self.volume - 5)
 
-            now = time.time()
-            dt = now - last_draw
-            if dt >= frame_interval:
-                # Actualizar estado de MPV y MPRIS (con interpolación y polling ligero)
-                self.update_playback_state(dt)
-                # Redibujar interfaz fluida a 35 FPS
-                self.draw_screen(dt)
-                last_draw = now
-            else:
-                rem = frame_interval - (time.time() - last_draw)
-                if rem > 0.002:
-                    time.sleep(rem * 0.5)
-
-        self.restore_terminal()
-        self.mpris.stop()
-        self.deck_a.stop()
-        self.deck_b.stop()
-        self.cava_reader.stop()
+                now = time.time()
+                dt = now - last_draw
+                if dt >= frame_interval:
+                    # Actualizar estado de MPV y MPRIS (con interpolación y polling ligero)
+                    self.update_playback_state(dt)
+                    # Redibujar interfaz fluida a 35 FPS
+                    self.draw_screen(dt)
+                    last_draw = now
+                else:
+                    rem = frame_interval - (time.time() - last_draw)
+                    if rem > 0.002:
+                        time.sleep(rem * 0.5)
+        finally:
+            self.restore_terminal()
+            self.mpris.stop()
+            self.deck_a.stop()
+            self.deck_b.stop()
+            self.cava_reader.stop()
 
 
 def main():
@@ -1642,7 +1827,51 @@ def main():
         parser.add_argument("--type", choices=["track", "album", "playlist"], default="track", help="Tipo de contenido")
         parser.add_argument("--id", type=str, default=None, help="ID de la pista, álbum o playlist")
         parser.add_argument("--start-idx", type=int, default=0, help="Índice de pista de inicio")
+        parser.add_argument("--test-lastfm", action="store_true", help="Probar autenticación y conexión con Last.fm")
+        parser.add_argument("--setup-lastfm", action="store_true", help="Configurar credenciales de Last.fm de forma interactiva")
         args = parser.parse_args()
+
+        if args.test_lastfm:
+            ok, msg = test_lastfm_credentials()
+            print(f"[{'OK' if ok else 'FAIL'}] {msg}")
+            sys.exit(0 if ok else 1)
+
+        if args.setup_lastfm:
+            import getpass
+            print("\n=== Configuración interactiva de Last.fm para Quick-Tide ===")
+            print("Consigue tu API Key gratuita en: https://www.last.fm/api/account/create\n")
+            username = input("Usuario de Last.fm: ").strip()
+            password = getpass.getpass("Contraseña de Last.fm: ").strip()
+            api_key = input("API Key de Last.fm: ").strip()
+            api_secret = getpass.getpass("API Secret de Last.fm: ").strip()
+
+            test_cfg = {
+                "enabled": True,
+                "username": username,
+                "password": password,
+                "api_key": api_key,
+                "api_secret": api_secret,
+            }
+            print("\nProbando credenciales con Last.fm...")
+            ok, msg = test_lastfm_credentials(test_cfg)
+            if ok:
+                print(f"[OK] {msg}")
+                saved = config.save_lastfm_config(
+                    username=username,
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    password=password,
+                    enabled=True
+                )
+                if saved:
+                    print("✔ ¡Configuración guardada exitosamente en ~/.config/quick-tide/config.toml!\n")
+                    sys.exit(0)
+                else:
+                    print("✗ Error al guardar el archivo de configuración.\n")
+                    sys.exit(1)
+            else:
+                print(f"[FAIL] {msg}\nNo se guardaron los cambios.\n")
+                sys.exit(1)
 
         app = TidalPlayerTUI(initial_type=args.type, initial_id=args.id, initial_start_idx=args.start_idx)
         app.run()

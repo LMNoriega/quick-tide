@@ -81,7 +81,7 @@ class TidalSearchBackend(QObject):
     detailTracksChanged = pyqtSignal()
     isLoadingDetailChanged = pyqtSignal()
 
-    _searchDoneSignal = pyqtSignal(list, str)
+    _searchDoneSignal = pyqtSignal(list, str, str)
     _userPlaylistsLoadedSignal = pyqtSignal(list)
     _detailDoneSignal = pyqtSignal(dict, list)
 
@@ -218,10 +218,10 @@ class TidalSearchBackend(QObject):
                 items = tidal_backend.search_tracks(query, limit=35)
         except Exception:
             items = []
-        self._searchDoneSignal.emit(items, query)
+        self._searchDoneSignal.emit(items, query, mode)
 
-    def _on_search_completed(self, items: list, query: str):
-        if query != self._pending_query:
+    def _on_search_completed(self, items: list, query: str, mode: str):
+        if query != self._pending_query or mode != self._current_mode:
             return
         self._results = items
         self._is_searching = False

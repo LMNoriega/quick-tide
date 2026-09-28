@@ -26,11 +26,30 @@ quality = "lossless"
 # Default: 5
 # Note: Crossfade is always OFF at startup regardless of this value.
 crossfade = 5
+
+[lastfm]
+# Set enabled = true to activate Last.fm scrobbling and Now Playing updates
+enabled = false
+username = ""
+password = ""          # Plaintext password (auto-hashed) or leave blank if using password_hash
+password_hash = ""     # MD5 hash of your password (generated automatically if password is provided)
+api_key = ""           # Last.fm API Key (from https://www.last.fm/api/account/create)
+api_secret = ""        # Last.fm API Secret
+session_key = ""       # Optional Last.fm session key
 """
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "quality": "lossless",
     "crossfade": 5,
+    "lastfm": {
+        "enabled": False,
+        "username": "",
+        "password": "",
+        "password_hash": "",
+        "api_key": "",
+        "api_secret": "",
+        "session_key": "",
+    },
 }
 
 VALID_QUALITIES = ("low", "high", "lossless", "max")
@@ -53,9 +72,15 @@ def ensure_config_exists() -> Path:
 def _parse_toml_fallback(text: str) -> Dict[str, Any]:
     """Fallback line-based key = value parser if tomllib is unavailable."""
     data: Dict[str, Any] = {}
+    current_section = None
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current_section = line[1:-1].strip()
+            if current_section not in data:
+                data[current_section] = {}
             continue
         if "=" in line:
             k, v = line.split("=", 1)
@@ -69,7 +94,10 @@ def _parse_toml_fallback(text: str) -> Dict[str, Any]:
                 v = True
             elif v.lower() == "false":
                 v = False
-            data[k] = v
+            if current_section:
+                data[current_section][k] = v
+            else:
+                data[k] = v
     return data
 
 
@@ -91,8 +119,17 @@ def load_config() -> Dict[str, Any]:
             raw_data = {}
 
     # Start with defaults, update with user configuration
-    result = dict(DEFAULT_CONFIG)
-    result.update(raw_data)
+    result = {
+        "quality": DEFAULT_CONFIG["quality"],
+        "crossfade": DEFAULT_CONFIG["crossfade"],
+        "lastfm": dict(DEFAULT_CONFIG["lastfm"]),
+    }
+    if "quality" in raw_data:
+        result["quality"] = raw_data["quality"]
+    if "crossfade" in raw_data:
+        result["crossfade"] = raw_data["crossfade"]
+    if "lastfm" in raw_data and isinstance(raw_data["lastfm"], dict):
+        result["lastfm"].update(raw_data["lastfm"])
 
     # Validate quality
     q = str(result.get("quality", "lossless")).lower().strip()
@@ -109,6 +146,29 @@ def load_config() -> Dict[str, Any]:
         cf = 5
     result["crossfade"] = cf
 
+    # Check and merge environment variable overrides for Last.fm
+    lfm = result["lastfm"]
+    env_enabled = os.environ.get("LASTFM_ENABLED")
+    if env_enabled is not None:
+        lfm["enabled"] = env_enabled.lower() in ("1", "true", "yes", "on")
+    if os.environ.get("LASTFM_USERNAME"):
+        lfm["username"] = os.environ["LASTFM_USERNAME"]
+    if os.environ.get("LASTFM_PASSWORD"):
+        lfm["password"] = os.environ["LASTFM_PASSWORD"]
+    if os.environ.get("LASTFM_PASSWORD_HASH"):
+        lfm["password_hash"] = os.environ["LASTFM_PASSWORD_HASH"]
+    if os.environ.get("LASTFM_API_KEY"):
+        lfm["api_key"] = os.environ["LASTFM_API_KEY"]
+    if os.environ.get("LASTFM_API_SECRET"):
+        lfm["api_secret"] = os.environ["LASTFM_API_SECRET"]
+    if os.environ.get("LASTFM_SESSION_KEY"):
+        lfm["session_key"] = os.environ["LASTFM_SESSION_KEY"]
+
+    # Compute password_hash automatically if password is provided but hash is missing
+    if lfm.get("password") and not lfm.get("password_hash"):
+        import hashlib
+        lfm["password_hash"] = hashlib.md5(lfm["password"].encode("utf-8")).hexdigest()
+
     return result
 
 
@@ -120,3 +180,53 @@ def get_quality() -> str:
 def get_crossfade() -> int:
     """Get validated crossfade duration in seconds."""
     return int(load_config().get("crossfade", 5))
+
+
+def get_lastfm_config() -> Dict[str, Any]:
+    """Get validated Last.fm scrobbling configuration."""
+    return dict(load_config().get("lastfm", {}))
+
+
+def save_lastfm_config(
+    username: str,
+    api_key: str,
+    api_secret: str,
+    password_hash: str = "",
+    password: str = "",
+    session_key: str = "",
+    enabled: bool = True
+) -> bool:
+    """Save or update the [lastfm] configuration block in ~/.config/quick-tide/config.toml."""
+    try:
+        cfg_path = ensure_config_exists()
+        current_cfg = load_config()
+        current_quality = current_cfg.get("quality", "lossless")
+        current_crossfade = current_cfg.get("crossfade", 5)
+
+        if password and not password_hash:
+            import hashlib
+            password_hash = hashlib.md5(password.encode("utf-8")).hexdigest()
+
+        content = f"""# Quick-Tide Configuration File
+# Location: ~/.config/quick-tide/config.toml
+
+# Stream quality: "low", "high", "lossless", "max"
+quality = "{current_quality}"
+
+# Crossfade duration in seconds when crossfade is enabled (toggle with 'x' in player).
+crossfade = {current_crossfade}
+
+[lastfm]
+# Set enabled = true to activate Last.fm scrobbling and Now Playing updates
+enabled = {str(enabled).lower()}
+username = "{username}"
+password = "{password}"
+password_hash = "{password_hash}"
+api_key = "{api_key}"
+api_secret = "{api_secret}"
+session_key = "{session_key}"
+"""
+        cfg_path.write_text(content, encoding="utf-8")
+        return True
+    except Exception:
+        return False

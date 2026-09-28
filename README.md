@@ -129,6 +129,14 @@ quality = "lossless"
 # Por defecto: 5
 # Nota: El crossfade siempre inicia desactivado (OFF) al arrancar independientemente de este valor.
 crossfade = 5
+
+[lastfm]
+# Scrobbling nativo y estado "Now Playing" en Last.fm
+enabled = true
+username = "tu_usuario"
+password = "tu_password"      # Se convierte automáticamente a hash seguro
+api_key = "tu_api_key"        # Generable gratis en: https://www.last.fm/api/account/create
+api_secret = "tu_api_secret"
 ```
 
 ### Opciones Disponibles:
@@ -136,6 +144,14 @@ crossfade = 5
 | :--- | :--- | :--- | :--- |
 | `quality` | `"low"`, `"high"`, `"lossless"`, `"max"` | `"lossless"` | Calidad deseada de streaming de audio. Intenta usar la calidad especificada siempre que se pueda, con degradación elegante si la cuenta o pista no la soportan. `"max"` requiere suscripción TIDAL Max. |
 | `crossfade` | entero (segundos) | `5` | Duración del fundido cruzado simultáneo en segundos. La pista siguiente empieza a sonar mientras la actual concluye, fundiéndose suavemente con curvas Equal-Power. Se activa y desactiva con la tecla `x`. Siempre inicia en `OFF` al arrancar. |
+| `[lastfm].enabled` | `true` / `false` | `false` | Activa o desactiva la sincronización en tiempo real y scrobbles con Last.fm. |
+| `[lastfm].username` | cadena | `""` | Tu nombre de usuario en Last.fm. |
+| `[lastfm].api_key` | cadena | `""` | Clave API de Last.fm (o variable de entorno `LASTFM_API_KEY`). |
+| `[lastfm].api_secret` | cadena | `""` | Clave secreta API de Last.fm (o variable de entorno `LASTFM_API_SECRET`). |
+
+> 💡 **Comandos auxiliares de Last.fm:**
+> - `tidal-player-tui --test-lastfm`: Verifica y prueba tu conexión con Last.fm.
+> - `tidal-player-tui --setup-lastfm`: Asistente interactivo en terminal para configurar tus credenciales en 20 segundos.
 
 ---
 
