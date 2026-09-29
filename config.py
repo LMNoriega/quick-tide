@@ -17,6 +17,12 @@ ALT_CONFIG_FILE = CONFIG_DIR / "config"
 DEFAULT_CONFIG_CONTENT = """# Quick-Tide Configuration File
 # Location: ~/.config/quick-tide/config.toml
 
+# Main streaming service: "tidal" (Hi-Res FLAC / OAuth) or "youtube" (Opus / zero login)
+service = "tidal"
+
+# First-run setup completed flag
+setup_completed = true
+
 # Stream quality: "low", "high", "lossless", "max"
 # Default: "lossless"
 # Note: "max" requires a TIDAL Max subscription.
@@ -39,6 +45,8 @@ session_key = ""       # Optional Last.fm session key
 """
 
 DEFAULT_CONFIG: Dict[str, Any] = {
+    "service": "tidal",
+    "setup_completed": False,
     "quality": "lossless",
     "crossfade": 5,
     "lastfm": {
@@ -120,6 +128,8 @@ def load_config() -> Dict[str, Any]:
 
     # Start with defaults, update with user configuration
     result = {
+        "service": raw_data.get("service", DEFAULT_CONFIG["service"]),
+        "setup_completed": raw_data.get("setup_completed", DEFAULT_CONFIG["setup_completed"]),
         "quality": DEFAULT_CONFIG["quality"],
         "crossfade": DEFAULT_CONFIG["crossfade"],
         "lastfm": dict(DEFAULT_CONFIG["lastfm"]),
@@ -170,6 +180,91 @@ def load_config() -> Dict[str, Any]:
         lfm["password_hash"] = hashlib.md5(lfm["password"].encode("utf-8")).hexdigest()
 
     return result
+
+
+def get_active_service() -> str:
+    """Returns 'tidal' or 'youtube'."""
+    val = str(load_config().get("service", "tidal")).lower().strip()
+    if val in ("youtube", "yt", "ytmusic"):
+        return "youtube"
+    return "tidal"
+
+
+def set_active_service(service: str) -> bool:
+    """Update active service in config.toml."""
+    try:
+        service = "youtube" if service in ("youtube", "yt", "ytmusic") else "tidal"
+        cfg = load_config()
+        cfg["service"] = service
+        cfg["setup_completed"] = True
+        return save_full_config(cfg)
+    except Exception:
+        return False
+
+
+def is_setup_completed() -> bool:
+    """Returns True if user has completed onboarding or has an active session."""
+    cfg = load_config()
+    if cfg.get("setup_completed", False):
+        return True
+    if (CONFIG_DIR / "session.json").is_file() or (Path.home() / ".config" / "low-tide" / "session.json").is_file():
+        return True
+    return False
+
+
+def set_setup_completed(val: bool = True) -> bool:
+    cfg = load_config()
+    cfg["setup_completed"] = bool(val)
+    return save_full_config(cfg)
+
+
+def save_full_config(cfg: Dict[str, Any]) -> bool:
+    """Save full configuration to ~/.config/quick-tide/config.toml."""
+    try:
+        cfg_path = ensure_config_exists()
+        service = cfg.get("service", "tidal")
+        setup_completed = str(cfg.get("setup_completed", True)).lower()
+        quality = cfg.get("quality", "lossless")
+        crossfade = cfg.get("crossfade", 5)
+
+        lfm = cfg.get("lastfm", {})
+        lfm_enabled = str(lfm.get("enabled", False)).lower()
+        lfm_user = lfm.get("username", "")
+        lfm_pass = lfm.get("password", "")
+        lfm_hash = lfm.get("password_hash", "")
+        lfm_key = lfm.get("api_key", "")
+        lfm_sec = lfm.get("api_secret", "")
+        lfm_ses = lfm.get("session_key", "")
+
+        content = f"""# Quick-Tide Configuration File
+# Location: ~/.config/quick-tide/config.toml
+
+# Main streaming service: "tidal" (Hi-Res FLAC / OAuth) or "youtube" (Opus / zero login)
+service = "{service}"
+
+# First-run setup completed flag
+setup_completed = {setup_completed}
+
+# Stream quality: "low", "high", "lossless", "max"
+quality = "{quality}"
+
+# Crossfade duration in seconds when crossfade is enabled (toggle with 'x' in player).
+crossfade = {crossfade}
+
+[lastfm]
+# Set enabled = true to activate Last.fm scrobbling and Now Playing updates
+enabled = {lfm_enabled}
+username = "{lfm_user}"
+password = "{lfm_pass}"
+password_hash = "{lfm_hash}"
+api_key = "{lfm_key}"
+api_secret = "{lfm_sec}"
+session_key = "{lfm_ses}"
+"""
+        cfg_path.write_text(content, encoding="utf-8")
+        return True
+    except Exception:
+        return False
 
 
 def get_quality() -> str:

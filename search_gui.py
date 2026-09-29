@@ -11,12 +11,15 @@ import socket
 import subprocess
 import threading
 
-# Add local share to sys.path to import tidal_backend
+# Add local share to sys.path to import modules
 SHARE_DIR = os.path.dirname(os.path.abspath(__file__))
 if SHARE_DIR not in sys.path:
     sys.path.insert(0, SHARE_DIR)
 
+import config
+import music_backend
 import tidal_backend
+import ytmusic_backend
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtQml import QQmlApplicationEngine
@@ -112,9 +115,19 @@ class TidalSearchBackend(QObject):
     detailTracksChanged = pyqtSignal()
     isLoadingDetailChanged = pyqtSignal()
 
+    isSetupWizardChanged = pyqtSignal()
+    activeServiceChanged = pyqtSignal()
+    tidalLoggedInChanged = pyqtSignal()
+    tidalAuthUrlChanged = pyqtSignal()
+    tidalUserCodeChanged = pyqtSignal()
+    isLoggingInTidalChanged = pyqtSignal()
+    tidalLoginStatusChanged = pyqtSignal()
+
     _searchDoneSignal = pyqtSignal(list, str, str)
     _userPlaylistsLoadedSignal = pyqtSignal(list)
     _detailDoneSignal = pyqtSignal(dict, list)
+    _tidalLoginSuccessSignal = pyqtSignal(str)
+    _tidalLoginErrorSignal = pyqtSignal(str)
 
     def __init__(self, app_instance):
         super().__init__()
@@ -122,7 +135,19 @@ class TidalSearchBackend(QObject):
         self._theme = get_serpantinum_theme()
         self._results = []
         self._user_playlists = []
-        self._status_text = "Ingresa al menos 2 caracteres para buscar en Tidal..."
+        self._active_service = config.get_active_service()
+        self._is_setup_wizard = not config.is_setup_completed()
+        self._tidal_logged_in = tidal_backend.is_logged_in()
+        self._tidal_auth_url = ""
+        self._tidal_user_code = ""
+        self._is_logging_in_tidal = False
+        self._tidal_login_status = ""
+
+        if self._active_service == "youtube":
+            self._status_text = "Ingresa al menos 2 caracteres para buscar en YouTube Music..."
+        else:
+            self._status_text = "Ingresa al menos 2 caracteres para buscar en Tidal..."
+
         self._current_mode = "tracks"  # "tracks", "albums", "playlists"
         self._is_searching = False
         self._pending_query = ""
@@ -133,7 +158,7 @@ class TidalSearchBackend(QObject):
         self._all_detail_tracks = []
         self._is_loading_detail = False
 
-        # Timer para debounce de búsqueda en API de Tidal
+        # Timer para debounce de búsqueda
         self._debounce_timer = QTimer()
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(220)
@@ -142,13 +167,16 @@ class TidalSearchBackend(QObject):
         self._searchDoneSignal.connect(self._on_search_completed)
         self._userPlaylistsLoadedSignal.connect(self._on_user_playlists_loaded)
         self._detailDoneSignal.connect(self._on_detail_completed)
+        self._tidalLoginSuccessSignal.connect(self._on_tidal_login_success)
+        self._tidalLoginErrorSignal.connect(self._on_tidal_login_error)
 
-        # Cargar playlists del usuario en segundo plano al iniciar
-        threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
+        # Cargar playlists del usuario en segundo plano si Tidal está activo
+        if self._active_service == "tidal" and self._tidal_logged_in:
+            threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
 
     def _fetch_user_playlists_worker(self):
         try:
-            pls = tidal_backend.get_user_playlists()
+            pls = music_backend.get_user_playlists()
         except Exception:
             pls = []
         self._userPlaylistsLoadedSignal.emit(pls)
@@ -160,6 +188,34 @@ class TidalSearchBackend(QObject):
             self._status_text = "Tus playlists guardadas en Tidal" if self._results else "No tienes playlists guardadas en tu cuenta"
             self.resultsChanged.emit()
             self.statusTextChanged.emit()
+
+    @pyqtProperty(bool, notify=isSetupWizardChanged)
+    def isSetupWizard(self):
+        return self._is_setup_wizard
+
+    @pyqtProperty(str, notify=activeServiceChanged)
+    def activeService(self):
+        return self._active_service
+
+    @pyqtProperty(bool, notify=tidalLoggedInChanged)
+    def tidalLoggedIn(self):
+        return self._tidal_logged_in
+
+    @pyqtProperty(str, notify=tidalAuthUrlChanged)
+    def tidalAuthUrl(self):
+        return self._tidal_auth_url
+
+    @pyqtProperty(str, notify=tidalUserCodeChanged)
+    def tidalUserCode(self):
+        return self._tidal_user_code
+
+    @pyqtProperty(bool, notify=isLoggingInTidalChanged)
+    def isLoggingInTidal(self):
+        return self._is_logging_in_tidal
+
+    @pyqtProperty(str, notify=tidalLoginStatusChanged)
+    def tidalLoginStatus(self):
+        return self._tidal_login_status
 
     @pyqtProperty("QVariantMap", notify=themeChanged)
     def theme(self):
@@ -197,33 +253,121 @@ class TidalSearchBackend(QObject):
     def isLoadingDetail(self):
         return self._is_loading_detail
 
+    @pyqtSlot(str)
+    def selectService(self, service: str):
+        config.set_active_service(service)
+        self._active_service = service
+        self._is_setup_wizard = False
+        self.activeServiceChanged.emit()
+        self.isSetupWizardChanged.emit()
+        self.playClickSound()
+
+        svc_name = "YouTube Music" if service == "youtube" else "Tidal"
+        self._status_text = f"Servicio activo: {svc_name}. Ingresa texto para buscar..."
+        self.statusTextChanged.emit()
+
+        if service == "tidal" and self._tidal_logged_in:
+            threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
+        else:
+            self._user_playlists = []
+
+        if len(self._pending_query) >= 2:
+            self._debounce_timer.start()
+
+    @pyqtSlot()
+    def startTidalLogin(self):
+        self.playClickSound()
+        self._is_logging_in_tidal = True
+        self._tidal_login_status = "Iniciando autorización con Tidal..."
+        self.isLoggingInTidalChanged.emit()
+        self.tidalLoginStatusChanged.emit()
+
+        def _on_success(user_name):
+            self._tidalLoginSuccessSignal.emit(user_name)
+
+        def _on_error(err):
+            self._tidalLoginErrorSignal.emit(err)
+
+        def _starter():
+            try:
+                auth_url, user_code = tidal_backend.start_oauth_login(on_success=_on_success, on_error=_on_error)
+                self._tidal_auth_url = auth_url
+                self._tidal_user_code = user_code
+                self._tidal_login_status = "Esperando confirmación en el navegador..."
+                self.tidalAuthUrlChanged.emit()
+                self.tidalUserCodeChanged.emit()
+                self.tidalLoginStatusChanged.emit()
+
+                # Abrir navegador automáticamente
+                import webbrowser
+                webbrowser.open(auth_url)
+            except Exception as e:
+                self._tidalLoginErrorSignal.emit(str(e))
+
+        threading.Thread(target=_starter, daemon=True).start()
+
+    def _on_tidal_login_success(self, user_name: str):
+        self._tidal_logged_in = True
+        self._is_logging_in_tidal = False
+        self._tidal_login_status = f"¡Sesión iniciada con éxito como {user_name}!"
+        self.tidalLoggedInChanged.emit()
+        self.isLoggingInTidalChanged.emit()
+        self.tidalLoginStatusChanged.emit()
+        self.playClickSound()
+
+    def _on_tidal_login_error(self, err: str):
+        self._is_logging_in_tidal = False
+        self._tidal_login_status = f"Error al iniciar sesión: {err}"
+        self.isLoggingInTidalChanged.emit()
+        self.tidalLoginStatusChanged.emit()
+
+    @pyqtSlot()
+    def openSettings(self):
+        self._is_setup_wizard = True
+        self.isSetupWizardChanged.emit()
+        self.playClickSound()
+
+    @pyqtSlot()
+    def closeSettings(self):
+        self._is_setup_wizard = False
+        self.isSetupWizardChanged.emit()
+        self.playSwitchSound()
+
+    @pyqtSlot(str)
+    def openBrowser(self, url: str):
+        import webbrowser
+        webbrowser.open(url)
+
     @pyqtSlot(str, str)
     def search(self, query: str, mode: str):
         self._pending_query = query.strip()
         self._current_mode = mode
         self.currentModeChanged.emit()
 
+        svc_name = "YouTube Music" if self._active_service == "youtube" else "Tidal"
+
         if len(self._pending_query) < 2:
             self._debounce_timer.stop()
             self._is_searching = False
             self.isSearchingChanged.emit()
 
-            if mode == "playlists":
-                # Mostrar automáticamente las playlists del usuario
+            if mode == "playlists" and self._active_service == "tidal":
                 self._results = list(self._user_playlists)
                 self._status_text = "Tus playlists guardadas en Tidal" if self._results else "Cargando tus playlists..."
             else:
                 self._results = []
                 if mode == "albums":
-                    self._status_text = "Ingresa al menos 2 caracteres para buscar álbumes..."
+                    self._status_text = f"Ingresa al menos 2 caracteres para buscar álbumes en {svc_name}..."
+                elif mode == "playlists":
+                    self._status_text = f"Ingresa al menos 2 caracteres para buscar playlists en {svc_name}..."
                 else:
-                    self._status_text = "Ingresa al menos 2 caracteres para buscar canciones..."
+                    self._status_text = f"Ingresa al menos 2 caracteres para buscar canciones en {svc_name}..."
 
             self.resultsChanged.emit()
             self.statusTextChanged.emit()
             return
 
-        self._status_text = "Buscando en Tidal..."
+        self._status_text = f"Buscando en {svc_name}..."
         self._is_searching = True
         self.statusTextChanged.emit()
         self.isSearchingChanged.emit()
@@ -237,16 +381,16 @@ class TidalSearchBackend(QObject):
     def _search_thread(self, query: str, mode: str):
         try:
             if mode == "albums":
-                items = tidal_backend.search_albums(query, limit=35)
+                items = music_backend.search_albums(query, limit=35)
             elif mode == "playlists":
-                items = tidal_backend.search_playlists(query, limit=35)
-                # Incluir al principio las playlists del usuario que coincidan con la búsqueda
-                q_lower = query.lower()
-                matching_user = [p for p in self._user_playlists if q_lower in str(p.get("name", "")).lower()]
-                seen = {p.get("id") for p in matching_user}
-                items = matching_user + [p for p in items if p.get("id") not in seen]
+                items = music_backend.search_playlists(query, limit=35)
+                if self._user_playlists and self._active_service == "tidal":
+                    q_lower = query.lower()
+                    matching_user = [p for p in self._user_playlists if q_lower in str(p.get("name", "")).lower()]
+                    seen = {p.get("id") for p in matching_user}
+                    items = matching_user + [p for p in items if p.get("id") not in seen]
             else:
-                items = tidal_backend.search_tracks(query, limit=35)
+                items = music_backend.search_tracks(query, limit=35)
         except Exception:
             items = []
         self._searchDoneSignal.emit(items, query, mode)
@@ -287,13 +431,14 @@ class TidalSearchBackend(QObject):
 
         item_id = item.get("id")
         item_type = item.get("type", "album")
+        provider = item.get("provider", self._active_service)
 
         def _worker():
             try:
                 if item_type == "playlist":
-                    tracks = tidal_backend.get_playlist_tracks(str(item_id))
+                    tracks = music_backend.get_playlist_tracks(str(item_id), provider)
                 else:
-                    tracks = tidal_backend.get_album_tracks(int(item_id))
+                    tracks = music_backend.get_album_tracks(item_id, provider)
             except Exception:
                 tracks = []
             self._detailDoneSignal.emit(item, tracks)
@@ -302,7 +447,6 @@ class TidalSearchBackend(QObject):
 
     def _on_detail_completed(self, item: dict, tracks: list):
         if str(self._detail_data.get("id")) == str(item.get("id")):
-            # Etiquetar cada pista con su índice original dentro de la colección
             for idx, t in enumerate(tracks):
                 t["original_idx"] = idx
             self._all_detail_tracks = list(tracks)
@@ -343,6 +487,7 @@ class TidalSearchBackend(QObject):
             return
         item_id = self._detail_data.get("id")
         item_type = self._detail_data.get("type", "album")
+        provider = self._detail_data.get("provider", self._active_service)
 
         # Mapear al índice real original si la lista fue filtrada con búsqueda
         start_idx = track_index
@@ -350,7 +495,7 @@ class TidalSearchBackend(QObject):
             start_idx = self._detail_tracks[track_index].get("original_idx", track_index)
 
         self.playClickSound()
-        self._send_play_cmd(item_type, item_id, start_idx)
+        self._send_play_cmd(item_type, item_id, start_idx, provider)
         self.closeWindow()
 
     @pyqtSlot()
@@ -360,8 +505,9 @@ class TidalSearchBackend(QObject):
             return
         item_id = self._detail_data.get("id")
         item_type = self._detail_data.get("type", "album")
+        provider = self._detail_data.get("provider", self._active_service)
         self.playClickSound()
-        self._send_play_cmd(item_type, item_id, 0)
+        self._send_play_cmd(item_type, item_id, 0, provider)
         self.closeWindow()
 
     @pyqtSlot("QVariantMap")
@@ -374,11 +520,12 @@ class TidalSearchBackend(QObject):
         item_id = item.get("id")
         if not item_id:
             return
+        provider = item.get("provider", self._active_service)
         self.playClickSound()
-        self._send_play_cmd("track", item_id, 0)
+        self._send_play_cmd("track", item_id, 0, provider)
         self.closeWindow()
 
-    def _send_play_cmd(self, item_type: str, item_id: any, start_idx: int = 0):
+    def _send_play_cmd(self, item_type: str, item_id: any, start_idx: int = 0, provider: str = "tidal"):
         sent = False
         if os.path.exists(PLAYER_SOCKET):
             try:
@@ -389,7 +536,8 @@ class TidalSearchBackend(QObject):
                     "action": "play",
                     "type": item_type,
                     "id": item_id,
-                    "start_idx": start_idx
+                    "start_idx": start_idx,
+                    "provider": provider,
                 }) + "\n"
                 s.sendall(payload.encode("utf-8"))
                 s.close()
@@ -401,11 +549,12 @@ class TidalSearchBackend(QObject):
             cmd = [
                 "kitty",
                 "--class", "tidal-player-tui",
-                "--title", "Tidal - Player",
+                "--title", "Quick-Tide - Player",
                 os.path.expanduser("~/.local/bin/tidal-player-tui"),
                 "--type", str(item_type),
                 "--id", str(item_id),
-                "--start-idx", str(start_idx)
+                "--start-idx", str(start_idx),
+                "--provider", str(provider),
             ]
             subprocess.Popen(
                 cmd,

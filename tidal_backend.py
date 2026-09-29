@@ -31,10 +31,14 @@ for p in [LOWTIDE_DIR] + venv_site_pkgs:
         sys.path.insert(0, p)
 
 try:
-    from lowtide.tidal_client import TidalClient
-    from lowtide.lyrics import parse_lrc, LyricLine
-except ImportError as e:
-    raise RuntimeError(f"No se pudo cargar lowtide desde {LOWTIDE_DIR}: {e}")
+    from tidal_client import TidalClient, _QUALITY_MAP, _QUALITY_ORDER
+    from lyrics import parse_lrc, LyricLine
+except ImportError:
+    try:
+        from lowtide.tidal_client import TidalClient, _QUALITY_MAP, _QUALITY_ORDER
+        from lowtide.lyrics import parse_lrc, LyricLine
+    except ImportError as e:
+        raise RuntimeError(f"No se pudo cargar tidal_client: {e}")
 
 log = logging.getLogger(__name__)
 
@@ -45,10 +49,22 @@ _client_lock = threading.Lock()
 _client_instance: Optional[TidalClient] = None
 
 
+def is_logged_in() -> bool:
+    try:
+        client = get_client()
+        return client.is_logged_in()
+    except Exception:
+        return False
+
+
+def start_oauth_login(on_success=None, on_error=None) -> Tuple[str, str]:
+    client = get_client()
+    return client.start_oauth_login(on_success=on_success, on_error=on_error)
+
+
 def _apply_quality_config(client: TidalClient) -> None:
     """Apply configured quality setting to TidalClient session and floor."""
     try:
-        from lowtide.tidal_client import _QUALITY_MAP, _QUALITY_ORDER
         q_str = get_quality()
         target = _QUALITY_MAP.get(q_str, _QUALITY_MAP.get("lossless"))
         client.session.config.quality = target
@@ -139,6 +155,7 @@ def search_tracks(query: str, limit: int = 30) -> List[Dict[str, Any]]:
             "cover_url": cover_url,
             "quality": str(quality).replace("AudioQuality.", ""),
             "explicit": bool(getattr(t, "explicit", False)),
+            "raw_obj": t,
         })
     return results
 
@@ -250,12 +267,18 @@ def get_track_stream_url(track_or_id: Any) -> Optional[str]:
     client = get_client()
     try:
         t_id: Optional[int] = None
-        if isinstance(track_or_id, (int, str)):
+        track = None
+        if isinstance(track_or_id, dict):
+            track = track_or_id.get("raw_obj")
+            try:
+                t_id = int(track_or_id.get("id"))
+            except (ValueError, TypeError):
+                t_id = None
+        elif isinstance(track_or_id, (int, str)):
             try:
                 t_id = int(track_or_id)
             except ValueError:
                 t_id = None
-            track = None
         else:
             track = track_or_id
             t_id = getattr(track, "id", None)

@@ -23,7 +23,9 @@ Window {
     readonly property color currentAccent: isPlaylistMode ? theme.blue : (isAlbumMode ? theme.peach : theme.mauve)
 
     Component.onCompleted: {
-        searchInput.forceFocus();
+        if (!backend.isSetupWizard) {
+            searchInput.forceFocus();
+        }
     }
 
     Connections {
@@ -32,7 +34,12 @@ Window {
             if (backend.isDetailView) {
                 detailSearchInput.text = "";
                 detailSearchInput.forceActiveFocus();
-            } else {
+            } else if (!backend.isSetupWizard) {
+                searchInput.forceFocus();
+            }
+        }
+        function onIsSetupWizardChanged() {
+            if (!backend.isSetupWizard && !backend.isDetailView) {
                 searchInput.forceFocus();
             }
         }
@@ -81,6 +88,14 @@ Window {
     }
 
     function handleGlobalKey(event) {
+        if (backend.isSetupWizard) {
+            if (event.key === Qt.Key_Escape) {
+                backend.closeSettings();
+                event.accepted = true;
+                return;
+            }
+            return;
+        }
         if (backend.isDetailView) {
             if (detailSearchInput.activeFocus) {
                 return;
@@ -248,21 +263,21 @@ Window {
                 id: searchView
                 anchors.fill: parent
                 spacing: 12
-                visible: opacity > 0
-                opacity: backend.isDetailView ? 0 : 1
-                enabled: !backend.isDetailView
+                visible: opacity > 0.001
+                opacity: (!backend.isSetupWizard && !backend.isDetailView) ? 1 : 0
+                enabled: !backend.isSetupWizard && !backend.isDetailView
 
                 Behavior on opacity { NumberAnimation { duration: 160 } }
 
                 // ================= HEADER & TABS =================
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 14
+                    spacing: 12
 
                     // Selector de modo con píldora animada (Canciones, Álbumes, Playlists)
                     Rectangle {
                         id: modeToggle
-                        Layout.preferredWidth: 320
+                        Layout.preferredWidth: 300
                         Layout.preferredHeight: 36
                         radius: 10
                         color: Qt.alpha(theme.surface0, 0.65)
@@ -361,12 +376,53 @@ Window {
                         }
                     }
 
+                    // Service Pill & Settings Button
+                    Rectangle {
+                        id: servicePill
+                        Layout.preferredHeight: 36
+                        Layout.preferredWidth: serviceContentRow.width + 20
+                        radius: 10
+                        color: pillMouse.containsMouse ? Qt.alpha(theme.surface1, 0.8) : Qt.alpha(theme.surface0, 0.65)
+                        border.color: pillMouse.containsMouse ? root.currentAccent : Qt.alpha(theme.surface2, 0.70)
+                        border.width: 1
+
+                        RowLayout {
+                            id: serviceContentRow
+                            anchors.centerIn: parent
+                            spacing: 6
+
+                            Text {
+                                text: backend.activeService === "youtube" ? "󰗃 YT Music" : "🌊 Tidal"
+                                font.family: "JetBrains Mono"
+                                font.pixelSize: 11
+                                font.bold: true
+                                color: backend.activeService === "youtube" ? "#00d2ff" : theme.mauve
+                            }
+
+                            Text {
+                                text: "⚙"
+                                font.pixelSize: 12
+                                color: theme.subtext0
+                            }
+                        }
+
+                        MouseArea {
+                            id: pillMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                backend.openSettings();
+                            }
+                        }
+                    }
+
                     // Subtítulo
                     Column {
                         Layout.fillWidth: true
                         spacing: 2
                         Text {
-                            text: "Tidal Hi-Fi Serpantinum"
+                            text: backend.activeService === "youtube" ? "YouTube Music Opus Suite" : "Tidal Hi-Fi Serpantinum"
                             font.family: "JetBrains Mono"
                             font.pixelSize: 14
                             font.bold: true
@@ -375,7 +431,7 @@ Window {
                         }
                         Text {
                             text: root.isPlaylistMode
-                                  ? "Explorar tus playlists y colecciones de Tidal"
+                                  ? (backend.activeService === "youtube" ? "Buscar y explorar playlists en YouTube Music" : "Explorar tus playlists y colecciones de Tidal")
                                   : (root.isAlbumMode ? "Explorar y reproducir álbumes completos" : "Búsqueda y reproducción de canciones en alta fidelidad")
                             font.family: "JetBrains Mono"
                             font.pixelSize: 11
@@ -977,9 +1033,9 @@ Window {
                 id: detailView
                 anchors.fill: parent
                 spacing: 12
-                visible: opacity > 0
-                opacity: backend.isDetailView ? 1 : 0
-                enabled: backend.isDetailView
+                visible: opacity > 0.001
+                opacity: (!backend.isSetupWizard && backend.isDetailView) ? 1 : 0
+                enabled: !backend.isSetupWizard && backend.isDetailView
 
                 Behavior on opacity { NumberAnimation { duration: 160 } }
 
@@ -1537,6 +1593,467 @@ Window {
                         font.family: "JetBrains Mono"
                         font.pixelSize: 11
                         color: theme.subtext1
+                    }
+                }
+            }
+
+            // ========================================================
+            // VISTA 3: ASISTENTE DE CONFIGURACIÓN Y MULTI-SERVICIO
+            // ========================================================
+            ColumnLayout {
+                id: setupWizardView
+                anchors.fill: parent
+                spacing: 14
+                visible: opacity > 0.001
+                opacity: backend.isSetupWizard ? 1 : 0
+                enabled: backend.isSetupWizard
+
+                Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                // Top Header with Close
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    Text {
+                        text: "🎧"
+                        font.pixelSize: 22
+                    }
+
+                    ColumnLayout {
+                        spacing: 2
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: "Configuración de Servicios de Música"
+                            font.family: "JetBrains Mono"
+                            font.pixelSize: 16
+                            font.bold: true
+                            color: theme.text
+                        }
+
+                        Text {
+                            text: "Elige tu proveedor principal. Puedes alternar o reconfigurar cuando quieras."
+                            font.family: "JetBrains Mono"
+                            font.pixelSize: 11
+                            color: theme.subtext0
+                        }
+                    }
+
+                    // Botón cerrar
+                    Rectangle {
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        radius: 8
+                        color: closeMouse.containsMouse ? Qt.alpha(theme.surface2, 0.8) : Qt.alpha(theme.surface1, 0.5)
+                        border.color: Qt.alpha(theme.surface2, 0.6)
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "✕"
+                            font.family: "JetBrains Mono"
+                            font.pixelSize: 13
+                            font.bold: true
+                            color: closeMouse.containsMouse ? theme.mauve : theme.subtext0
+                        }
+
+                        MouseArea {
+                            id: closeMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: backend.closeSettings()
+                        }
+                    }
+                }
+
+                // Grid de Servicios
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 14
+
+                    // ================= CARD 1: YOUTUBE MUSIC =================
+                    Rectangle {
+                        id: ytCard
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 14
+                        color: Qt.alpha(theme.surface0, 0.70)
+                        border.width: backend.activeService === "youtube" ? 2 : 1
+                        border.color: backend.activeService === "youtube" ? "#00d2ff" : (ytMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
+
+                        Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 10
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+
+                                Text {
+                                    text: "󰗃"
+                                    font.pixelSize: 26
+                                    color: "#00d2ff"
+                                }
+
+                                ColumnLayout {
+                                    spacing: 2
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: "YouTube Music"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 15
+                                        font.bold: true
+                                        color: theme.text
+                                    }
+                                    Text {
+                                        text: "Acceso libre y universal"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 11
+                                        color: theme.subtext1
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: backend.activeService === "youtube"
+                                    radius: 6
+                                    color: Qt.alpha("#00d2ff", 0.18)
+                                    border.color: "#00d2ff"
+                                    border.width: 1
+                                    Layout.preferredHeight: 22
+                                    Layout.preferredWidth: 60
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "ACTIVO"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: "#00d2ff"
+                                    }
+                                }
+                            }
+
+                            // Badges
+                            RowLayout {
+                                spacing: 6
+                                Rectangle {
+                                    radius: 4
+                                    color: Qt.alpha(theme.green, 0.18)
+                                    border.color: theme.green
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: ytB1.width + 10
+                                    Text { id: ytB1; anchors.centerIn: parent; text: "SIN CUENTA"; font.pixelSize: 9; font.bold: true; color: theme.green }
+                                }
+                                Rectangle {
+                                    radius: 4
+                                    color: Qt.alpha("#00d2ff", 0.18)
+                                    border.color: "#00d2ff"
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: ytB2.width + 10
+                                    Text { id: ytB2; anchors.centerIn: parent; text: "OPUS 160K"; font.pixelSize: 9; font.bold: true; color: "#00d2ff" }
+                                }
+                                Rectangle {
+                                    radius: 4
+                                    color: Qt.alpha(theme.mauve, 0.18)
+                                    border.color: theme.mauve
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: ytB3.width + 10
+                                    Text { id: ytB3; anchors.centerIn: parent; text: "LRCLIB 3D"; font.pixelSize: 9; font.bold: true; color: theme.mauve }
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                text: "Reproduce cualquier canción, álbum o playlist de inmediato. No requiere cuenta, API keys ni inicio de sesión. Streaming en formato Opus con letras sincronizadas de LRCLIB."
+                                font.family: "JetBrains Mono"
+                                font.pixelSize: 11
+                                color: theme.subtext0
+                                wrapMode: Text.WordWrap
+                                lineHeight: 1.35
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 36
+                                radius: 8
+                                color: backend.activeService === "youtube" ? Qt.alpha(theme.surface2, 0.6) : (ytBtnMouse.containsMouse ? Qt.alpha("#00d2ff", 0.3) : Qt.alpha("#00d2ff", 0.2))
+                                border.color: "#00d2ff"
+                                border.width: 1
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: backend.activeService === "youtube" ? "✓ Servicio Seleccionado" : "Seleccionar YouTube Music"
+                                    font.family: "JetBrains Mono"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    color: "#00d2ff"
+                                }
+
+                                MouseArea {
+                                    id: ytBtnMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: backend.selectService("youtube")
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            id: ytMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: backend.selectService("youtube")
+                        }
+                    }
+
+                    // ================= CARD 2: TIDAL HI-FI =================
+                    Rectangle {
+                        id: tidalCard
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 14
+                        color: Qt.alpha(theme.surface0, 0.70)
+                        border.width: backend.activeService === "tidal" ? 2 : 1
+                        border.color: backend.activeService === "tidal" ? theme.mauve : (tidalMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
+
+                        Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 10
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+
+                                Text {
+                                    text: "🌊"
+                                    font.pixelSize: 26
+                                }
+
+                                ColumnLayout {
+                                    spacing: 2
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: "Tidal Hi-Fi"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 15
+                                        font.bold: true
+                                        color: theme.text
+                                    }
+                                    Text {
+                                        text: backend.tidalLoggedIn ? "Sesión activa" : "Requiere cuenta Tidal"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 11
+                                        color: backend.tidalLoggedIn ? theme.green : theme.peach
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: backend.activeService === "tidal"
+                                    radius: 6
+                                    color: Qt.alpha(theme.mauve, 0.18)
+                                    border.color: theme.mauve
+                                    border.width: 1
+                                    Layout.preferredHeight: 22
+                                    Layout.preferredWidth: 60
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "ACTIVO"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: theme.mauve
+                                    }
+                                }
+                            }
+
+                            // Badges
+                            RowLayout {
+                                spacing: 6
+                                Rectangle {
+                                    radius: 4
+                                    color: Qt.alpha(theme.peach, 0.18)
+                                    border.color: theme.peach
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: tB1.width + 10
+                                    Text { id: tB1; anchors.centerIn: parent; text: "HI-RES FLAC"; font.pixelSize: 9; font.bold: true; color: theme.peach }
+                                }
+                                Rectangle {
+                                    radius: 4
+                                    color: Qt.alpha(theme.blue, 0.18)
+                                    border.color: theme.blue
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: tB2.width + 10
+                                    Text { id: tB2; anchors.centerIn: parent; text: "1411 KBPS"; font.pixelSize: 9; font.bold: true; color: theme.blue }
+                                }
+                                Rectangle {
+                                    radius: 4
+                                    color: Qt.alpha(theme.mauve, 0.18)
+                                    border.color: theme.mauve
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: tB3.width + 10
+                                    Text { id: tB3; anchors.centerIn: parent; text: "OAUTH NATIVO"; font.pixelSize: 9; font.bold: true; color: theme.mauve }
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                text: "Streaming master sin pérdidas en FLAC a 1411 kbps o Hi-Res 24-bit. Carátulas HD nativas en Kitty y acceso a tus playlists guardadas."
+                                font.family: "JetBrains Mono"
+                                font.pixelSize: 11
+                                color: theme.subtext0
+                                wrapMode: Text.WordWrap
+                                lineHeight: 1.35
+                            }
+
+                            // Auth actions
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                // Si está en proceso de login
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: backend.isLoggingInTidal
+                                    spacing: 4
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: backend.tidalLoginStatus
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: theme.peach
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 32
+                                        radius: 6
+                                        color: Qt.alpha(theme.surface2, 0.6)
+                                        border.color: theme.mauve
+                                        border.width: 1
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "Abrir enlace de autorización 🔗"
+                                            font.family: "JetBrains Mono"
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            color: theme.mauve
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: backend.openBrowser(backend.tidalAuthUrl)
+                                        }
+                                    }
+                                }
+
+                                // Si ya está logueado
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 36
+                                    radius: 8
+                                    visible: backend.tidalLoggedIn && !backend.isLoggingInTidal
+                                    color: backend.activeService === "tidal" ? Qt.alpha(theme.surface2, 0.6) : (tidalBtnMouse.containsMouse ? Qt.alpha(theme.mauve, 0.3) : Qt.alpha(theme.mauve, 0.2))
+                                    border.color: theme.mauve
+                                    border.width: 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: backend.activeService === "tidal" ? "✓ Servicio Seleccionado" : "Seleccionar Tidal"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: theme.mauve
+                                    }
+
+                                    MouseArea {
+                                        id: tidalBtnMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.selectService("tidal")
+                                    }
+                                }
+
+                                // Si no está logueado
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 36
+                                    radius: 8
+                                    visible: !backend.tidalLoggedIn && !backend.isLoggingInTidal
+                                    color: loginBtnMouse.containsMouse ? Qt.alpha(theme.mauve, 0.3) : Qt.alpha(theme.mauve, 0.2)
+                                    border.color: theme.mauve
+                                    border.width: 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "󰓎 Iniciar sesión con Tidal"
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: theme.mauve
+                                    }
+
+                                    MouseArea {
+                                        id: loginBtnMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.startTidalLogin()
+                                    }
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            id: tidalMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: {
+                                if (backend.tidalLoggedIn) {
+                                    backend.selectService("tidal");
+                                } else {
+                                    backend.startTidalLogin();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Footer
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Text {
+                        text: "Tip: Puedes cambiar de servicio en cualquier momento desde el botón ⚙ o con [Esc]"
+                        font.family: "JetBrains Mono"
+                        font.pixelSize: 10
+                        color: theme.subtext1
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Text {
+                        text: "[Esc] Volver a la búsqueda"
+                        font.family: "JetBrains Mono"
+                        font.pixelSize: 10
+                        color: theme.subtext0
                     }
                 }
             }

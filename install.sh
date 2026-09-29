@@ -174,6 +174,10 @@ if [ "$ACTION" = "update" ]; then
     cp -f "$DIR/search_gui.py" "$TARGET_SHARE/search_gui.py"
     cp -f "$DIR/scrobbler.py" "$TARGET_SHARE/scrobbler.py"
     cp -f "$DIR/tidal_backend.py" "$TARGET_SHARE/tidal_backend.py"
+    cp -f "$DIR/tidal_client.py" "$TARGET_SHARE/tidal_client.py"
+    cp -f "$DIR/ytmusic_backend.py" "$TARGET_SHARE/ytmusic_backend.py"
+    cp -f "$DIR/music_backend.py" "$TARGET_SHARE/music_backend.py"
+    cp -f "$DIR/lyrics.py" "$TARGET_SHARE/lyrics.py"
     cp -f "$DIR/config.py" "$TARGET_SHARE/config.py"
     if [ -f "$DIR/CHANGELOG.md" ]; then
         cp -f "$DIR/CHANGELOG.md" "$TARGET_SHARE/CHANGELOG.md"
@@ -246,6 +250,11 @@ if ! command -v cava >/dev/null 2>&1; then
     MISSING_PKGS+=("cava")
 fi
 
+# Comprobar yt-dlp (YouTube Music)
+if ! command -v yt-dlp >/dev/null 2>&1; then
+    MISSING_PKGS+=("yt-dlp")
+fi
+
 # Detección y recomendación de Kitty
 if command -v kitty >/dev/null 2>&1; then
     echo -e "  ${GREEN}✔ Terminal Kitty detectada (soporte nativo de carátulas kitten icat).${RESET}"
@@ -276,23 +285,17 @@ else
     echo -e "  ${GREEN}✔ Todas las dependencias principales están instaladas (Python, PyQt6, MPV, CAVA, Kitty).${RESET}"
 fi
 
-# 2. Comprobar sesión de Tidal (low-tide)
-echo -e "\n${BLUE}==> 2. Comprobando sesión de Tidal (low-tide)...${RESET}"
+# 2. Comprobar servicios de música y sesión
+echo -e "\n${BLUE}==> 2. Comprobando servicios de música...${RESET}"
 LOWTIDE_SESSION="$HOME/.config/low-tide/session.json"
-LOWTIDE_DIR="$HOME/.local/share/low-tide"
+QUICKTIDE_SESSION="$HOME/.config/quick-tide/session.json"
 
-if [ -f "$LOWTIDE_SESSION" ]; then
-    echo -e "  ${GREEN}✔ Sesión de Tidal detectada en: $LOWTIDE_SESSION${RESET}"
+echo -e "  ${GREEN}✔ YouTube Music:${RESET} Listo para usar inmediatamente sin cuenta (streaming Opus Hi-Fi)."
+if [ -f "$QUICKTIDE_SESSION" ] || [ -f "$LOWTIDE_SESSION" ]; then
+    echo -e "  ${GREEN}✔ Tidal Hi-Fi:${RESET} Sesión activa detectada (autenticación nativa lista)."
 else
-    echo -e "  ${YELLOW}! No se encontró sesión activa de Tidal en: $LOWTIDE_SESSION${RESET}"
-    echo -e "  ${BOLD}¿Cómo iniciar sesión con tu cuenta de Tidal por única vez?${RESET}"
-    echo -e "  1. Si aún no clonaste low-tide:"
-    echo -e "     ${CYAN}git clone https://github.com/pauljhdrake/low-tide.git ~/.local/share/low-tide${RESET}"
-    echo -e "     ${CYAN}cd ~/.local/share/low-tide && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt${RESET}"
-    echo -e "  2. Ejecuta low-tide una única vez para autenticar con Tidal vía OAuth:"
-    echo -e "     ${CYAN}python -m lowtide${RESET}"
-    echo -e "  3. Abre el enlace en tu navegador, confirma el inicio de sesión y sal de low-tide."
-    echo -e "  ¡Listo! Quick-Tide reutilizará automáticamente esa sesión para reproducir en Hi-Fi."
+    echo -e "  ${CYAN}• Tidal Hi-Fi:${RESET} Autenticación nativa integrada disponible."
+    echo -e "    Al abrir el programa podrás iniciar sesión en Tidal directamente desde tu navegador con un clic."
 fi
 
 # 3. Instalación de archivos y recursos
@@ -311,6 +314,10 @@ cp -f "$DIR/player_tui.py" "$TARGET_SHARE/player_tui.py"
 cp -f "$DIR/search_gui.py" "$TARGET_SHARE/search_gui.py"
 cp -f "$DIR/scrobbler.py" "$TARGET_SHARE/scrobbler.py"
 cp -f "$DIR/tidal_backend.py" "$TARGET_SHARE/tidal_backend.py"
+cp -f "$DIR/tidal_client.py" "$TARGET_SHARE/tidal_client.py"
+cp -f "$DIR/ytmusic_backend.py" "$TARGET_SHARE/ytmusic_backend.py"
+cp -f "$DIR/music_backend.py" "$TARGET_SHARE/music_backend.py"
+cp -f "$DIR/lyrics.py" "$TARGET_SHARE/lyrics.py"
 cp -f "$DIR/config.py" "$TARGET_SHARE/config.py"
 if [ -f "$DIR/CHANGELOG.md" ]; then
     cp -f "$DIR/CHANGELOG.md" "$TARGET_SHARE/CHANGELOG.md"

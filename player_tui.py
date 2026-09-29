@@ -40,6 +40,7 @@ for p in [SHARE_DIR, LOWTIDE_DIR] + venv_site_pkgs:
         sys.path.insert(0, p)
 
 import config
+import music_backend
 import tidal_backend
 from scrobbler import QuickTideScrobbler, test_lastfm_credentials
 
@@ -829,7 +830,7 @@ frame_delimiter = 10
 # =====================================================================
 
 class TidalPlayerTUI:
-    def __init__(self, initial_type: str = "track", initial_id: Optional[Any] = None, initial_start_idx: int = 0):
+    def __init__(self, initial_type: str = "track", initial_id: Optional[Any] = None, initial_start_idx: int = 0, initial_provider: Optional[str] = None):
         # Doble deck de MPV para fundido cruzado simultáneo real (True Equal-Power Crossfade)
         self.deck_a = MpvProcess(MPV_SOCKET_A)
         self.deck_b = MpvProcess(MPV_SOCKET_B)
@@ -860,7 +861,8 @@ class TidalPlayerTUI:
         self._last_mpv_poll = 0.0
 
         # Cargar configuración de Quick-Tide (~/.config/quick-tide/config.toml)
-        self.config = tidal_backend.load_config()
+        self.config = config.load_config()
+        self.active_provider = initial_provider or config.get_active_service()
         self.crossfade_duration: int = int(self.config.get("crossfade", 5))
         self.crossfade_enabled: bool = False  # Crossfade siempre inicia desactivado (OFF) independientemente del valor configurado
         self.configured_quality: str = str(self.config.get("quality", "lossless"))
@@ -892,7 +894,7 @@ class TidalPlayerTUI:
 
         # Cargar selección inicial
         if initial_id:
-            self.load_selection(initial_type, initial_id, initial_start_idx)
+            self.load_selection(initial_type, initial_id, initial_start_idx, self.active_provider)
 
     @property
     def mpv(self) -> MpvProcess:
@@ -926,9 +928,10 @@ class TidalPlayerTUI:
                         sel_type = msg.get("type", "track")
                         sel_id = msg.get("id")
                         start_idx = int(msg.get("start_idx", 0))
+                        sel_prov = msg.get("provider", self.active_provider)
                         threading.Thread(
                             target=self.load_selection,
-                            args=(sel_type, sel_id, start_idx),
+                            args=(sel_type, sel_id, start_idx, sel_prov),
                             daemon=True
                         ).start()
             except socket.timeout:
@@ -943,17 +946,19 @@ class TidalPlayerTUI:
         except Exception:
             pass
 
-    def load_selection(self, item_type: str, item_id: Any, start_idx: int = 0):
+    def load_selection(self, item_type: str, item_id: Any, start_idx: int = 0, provider: Optional[str] = None):
         self._load_gen += 1
         gen = self._load_gen
+        prov = provider or getattr(self, "active_provider", "tidal")
+        self.active_provider = prov
 
         # Obtener pistas desde la API fuera del lock para no congelar la UI
         if item_type == "album":
-            tracks = tidal_backend.get_album_tracks(int(item_id))
+            tracks = music_backend.get_album_tracks(item_id, prov)
         elif item_type == "playlist":
-            tracks = tidal_backend.get_playlist_tracks(str(item_id))
+            tracks = music_backend.get_playlist_tracks(str(item_id), prov)
         else:
-            t = tidal_backend.get_track_details(int(item_id))
+            t = music_backend.get_track_details(item_id, prov)
             tracks = [t] if t else []
 
         if not tracks or gen != self._load_gen:
@@ -988,7 +993,7 @@ class TidalPlayerTUI:
 
             # Cargar stream en el deck activo a volumen completo
             self.active_deck.set_volume(self.volume)
-            stream_url = tidal_backend.get_track_stream_url(track.get("raw_obj") or track.get("id"))
+            stream_url = music_backend.get_track_stream_url(track)
             if stream_url:
                 self.active_deck.load_file(stream_url)
                 self.active_deck.set_pause(False)
@@ -1009,7 +1014,7 @@ class TidalPlayerTUI:
         key = track.get("album_id") or track.get("id")
 
         def _cover_downloader():
-            c_path = tidal_backend.download_cover(cover_url, key)
+            c_path = music_backend.download_cover(cover_url, key)
             self.current_cover_path = c_path
             self.mpris.update_cover_art(c_path)
 
@@ -1029,8 +1034,8 @@ class TidalPlayerTUI:
 
         def _lyrics_worker():
             try:
-                plain, synced = tidal_backend.get_track_lyrics(
-                    t_raw or t_id,
+                plain, synced = music_backend.get_track_lyrics(
+                    track,
                     title=t_title,
                     artist=t_artist,
                     album=t_album,
@@ -1053,11 +1058,11 @@ class TidalPlayerTUI:
             next_t = self.queue[self.current_idx + 1]
             def _prefetch_next():
                 try:
-                    tidal_backend.get_track_stream_url(next_t.get("raw_obj") or next_t.get("id"))
+                    music_backend.get_track_stream_url(next_t)
                     n_cover = next_t.get("cover_url")
                     n_key = next_t.get("album_id") or next_t.get("id")
                     if n_cover:
-                        tidal_backend.download_cover(n_cover, n_key)
+                        music_backend.download_cover(n_cover, n_key)
                 except Exception:
                     pass
             threading.Thread(target=_prefetch_next, daemon=True).start()
@@ -1070,8 +1075,7 @@ class TidalPlayerTUI:
                 return
 
             self._incoming_track = self.queue[self.current_idx + 1]
-            next_obj = self._incoming_track.get("raw_obj") or self._incoming_track.get("id")
-            stream_url = tidal_backend.get_track_stream_url(next_obj)
+            stream_url = music_backend.get_track_stream_url(self._incoming_track)
             if not stream_url:
                 return
 
@@ -1255,6 +1259,13 @@ class TidalPlayerTUI:
 
         self._last_badge_check = now
         track = self.current_track or {}
+
+        if track.get("provider") == "youtube":
+            plain = " OPUS • 160 kbps "
+            styled = f"\033[48;2;0;42;54m\033[38;2;0;210;255m OPUS • 160 kbps {RESET}"
+            self._cached_badge_tuple = (styled, len(plain))
+            return self._cached_badge_tuple
+
         raw_q = str(track.get("quality", "LOSSLESS")).upper()
         is_hires = "HI_RES" in raw_q or "HIRES" in raw_q or "MAX" in raw_q
 
@@ -1827,6 +1838,7 @@ def main():
         parser.add_argument("--type", choices=["track", "album", "playlist"], default="track", help="Tipo de contenido")
         parser.add_argument("--id", type=str, default=None, help="ID de la pista, álbum o playlist")
         parser.add_argument("--start-idx", type=int, default=0, help="Índice de pista de inicio")
+        parser.add_argument("--provider", type=str, default=None, help="Proveedor de música: tidal o youtube")
         parser.add_argument("--test-lastfm", action="store_true", help="Probar autenticación y conexión con Last.fm")
         parser.add_argument("--setup-lastfm", action="store_true", help="Configurar credenciales de Last.fm de forma interactiva")
         args = parser.parse_args()
@@ -1873,7 +1885,7 @@ def main():
                 print(f"[FAIL] {msg}\nNo se guardaron los cambios.\n")
                 sys.exit(1)
 
-        app = TidalPlayerTUI(initial_type=args.type, initial_id=args.id, initial_start_idx=args.start_idx)
+        app = TidalPlayerTUI(initial_type=args.type, initial_id=args.id, initial_start_idx=args.start_idx, initial_provider=args.provider)
         app.run()
     except Exception as e:
         import traceback
