@@ -165,6 +165,7 @@ if [ "$ACTION" = "update" ]; then
     echo -e "  ${BLUE}• Actualizando binarios y recursos locales...${RESET}"
     TARGET_SHARE="$HOME/.local/share/quick-tide"
     mkdir -p "$HOME/.local/bin"
+    mkdir -p "$TARGET_SHARE/bin"
     mkdir -p "$TARGET_SHARE/sounds"
     mkdir -p "$HOME/.local/share/applications"
 
@@ -182,6 +183,10 @@ if [ "$ACTION" = "update" ]; then
     if [ -f "$DIR/CHANGELOG.md" ]; then
         cp -f "$DIR/CHANGELOG.md" "$TARGET_SHARE/CHANGELOG.md"
     fi
+
+    # Copiar ejecutables y wrappers
+    cp -rf "$DIR/bin/"* "$TARGET_SHARE/bin/"
+    chmod +x "$TARGET_SHARE/bin/"*
 
     # Copiar sonidos integrados
     if [ -d "$DIR/assets/sounds" ]; then
