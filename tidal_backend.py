@@ -80,11 +80,14 @@ def start_oauth_login(on_success=None, on_error=None) -> Tuple[str, str]:
 def _apply_quality_config(client: TidalClient) -> None:
     """Apply configured quality setting to TidalClient session and floor."""
     try:
+        from tidal_client import get_quality_map, get_quality_order
+        q_map = get_quality_map()
+        q_order = get_quality_order()
         q_str = get_quality()
-        target = _QUALITY_MAP.get(q_str, _QUALITY_MAP.get("lossless"))
+        target = q_map.get(q_str, q_map.get("lossless"))
         client.session.config.quality = target
         try:
-            client._quality_floor = _QUALITY_ORDER.index(target)
+            client._quality_floor = q_order.index(target)
         except ValueError:
             client._quality_floor = 1
         log.info("Quick-Tide audio quality set to: %s (floor index %d)", q_str, client._quality_floor)

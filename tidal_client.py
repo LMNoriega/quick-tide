@@ -9,6 +9,17 @@ import threading
 import time
 from typing import Optional, Tuple, Callable
 
+log = logging.getLogger(__name__)
+
+QUICKTIDE_DIR = os.path.join(os.path.expanduser("~"), ".config", "quick-tide")
+QUICKTIDE_SESSION = os.path.join(QUICKTIDE_DIR, "session.json")
+
+LOWTIDE_DIR = os.path.join(os.path.expanduser("~"), ".config", "low-tide")
+LOWTIDE_SESSION = os.path.join(LOWTIDE_DIR, "session.json")
+
+_MIN_CALL_INTERVAL = 0.3
+_MAX_RETRIES = 2
+
 _tidalapi = None
 _QUALITY_MAP = None
 _QUALITY_ORDER = None
@@ -34,6 +45,16 @@ def _get_tidalapi():
             Quality.low_96k,
         ]
     return _tidalapi
+
+
+def get_quality_map():
+    _get_tidalapi()
+    return _QUALITY_MAP
+
+
+def get_quality_order():
+    _get_tidalapi()
+    return _QUALITY_ORDER
 
 
 class TidalClient:
