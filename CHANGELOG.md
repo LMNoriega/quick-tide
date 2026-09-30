@@ -1,6 +1,16 @@
-version = 1.2.0
+version = 1.3.0
 
 # Registro de Cambios (Changelog) - Quick-Tide
+
+## [1.3.0] - 2026-09-28
+### Añadido
+- **Arquitectura Multi-Servicio Universal**: soporte integrado para **YouTube Music** (sin necesidad de cuenta, streaming Opus Hi-Fi) y **Tidal Hi-Fi** (autenticación nativa OAuth sin depender de programas externos).
+- **Asistente de Configuración Inicial (Setup Wizard)**: interfaz interactiva con estética Serpantinum / Liquid Glass en la primera apertura para seleccionar tu servicio o reconfigurar con `Ctrl + ,` / botón `⚙`.
+- **Sincronización de Playlists de YouTube con un clic**: importación automática de playlists personales y música que te gusta desde Zen Browser o Chromium sin escribir contraseñas.
+- **Arranque Instantáneo (16x más veloz)**: inicialización asíncrona de motores pesados (`yt_dlp` y `tidalapi`) reduciendo el tiempo de apertura de ~1.5s a menos de ~100ms.
+- **Carátulas de Estudio 1400x1400**: integración con las APIs públicas de Apple Music (iTunes) y Deezer para descargar carátulas cuadradas de ultra alta resolución para YouTube Music, evitando miniaturas 16:9 con barras negras en Kitty.
+- **Navegación 100% por Teclado**: control con `Tab` que cicla armónicamente entre pestañas y el selector de servicio, y navegación por flechas (`←` / `→`), `Enter` y `S` dentro del asistente.
+- **Diseño de Header Limpio**: reubicación de los atajos al footer inferior para evitar solapamientos con títulos largos de canciones.
 
 ## [1.2.0] - 2026-09-28
 ### Añadido

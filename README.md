@@ -11,8 +11,14 @@
 </p>
 
 <p align="center">
+  <a href="CHANGELOG.md">
+    <img src="https://img.shields.io/badge/Versión-v1.3.0-blue?style=for-the-badge" alt="Versión 1.3.0">
+  </a>
   <a href="assets/media/demo.mp4">
     <img src="https://img.shields.io/badge/▶_Ver_Video-Demostración_(MP4)-e9b5ef?style=for-the-badge&logoColor=110d11" alt="Ver Video de Demostración">
+  </a>
+  <a href="https://music.youtube.com">
+    <img src="https://img.shields.io/badge/YouTube_Music-Opus_Hi--Fi-ff0000?style=for-the-badge&logo=youtubemusic&logoColor=white" alt="YouTube Music">
   </a>
   <a href="https://archlinux.org">
     <img src="https://img.shields.io/badge/Arch_Linux-100%25_Compatible-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" alt="Arch Linux">
@@ -22,9 +28,6 @@
   </a>
   <a href="https://sw.kovidgoyal.net/kitty/">
     <img src="https://img.shields.io/badge/Kitty_Graphics-Protocol-f5b7b0?style=for-the-badge&logoColor=110d11" alt="Kitty">
-  </a>
-  <a href="https://pipewire.org">
-    <img src="https://img.shields.io/badge/PipeWire-CAVA_35_FPS-00d2ff?style=for-the-badge&logoColor=110d11" alt="PipeWire">
   </a>
 </p>
 
