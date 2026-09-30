@@ -150,11 +150,15 @@ def get_track_stream_url(track_or_id: Any) -> Optional[str]:
     return ytmusic_backend.get_track_stream_url(track_or_id)
 
 
-def download_cover(url: str | None, key: str | int) -> str:
-    if not url:
-        return ""
-    if "youtube.com" in url or "ytimg.com" in url or (isinstance(key, str) and not str(key).isdigit()):
-        return ytmusic_backend.download_cover(url, key)
+def download_cover(url: str | None, key: str | int, track: Optional[Dict[str, Any]] = None) -> str:
+    prov = "tidal"
+    if track and isinstance(track, dict):
+        prov = track.get("provider", "tidal")
+    elif (isinstance(key, str) and not str(key).isdigit()) or (url and ("youtube.com" in url or "ytimg.com" in url)):
+        prov = "youtube"
+
+    if prov == "youtube":
+        return ytmusic_backend.download_cover(url, key, track)
     return tidal_backend.download_cover(url, key)
 
 

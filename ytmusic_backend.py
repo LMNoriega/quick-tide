@@ -173,23 +173,101 @@ def clean_youtube_title(raw_title: str, uploader: str = "") -> Tuple[str, str]:
     return title, artist
 
 
-def download_cover(url: str | None, key: str | int) -> str:
-    """Download cover image to cache and return local file path."""
-    if not url:
+def fetch_highres_cover_url(artist: str, title: str) -> str:
+    """Queries iTunes Search API (1400x1400) and Deezer API (1000x1000) for pristine square album covers."""
+    if not (artist and title) or artist == "YouTube Music":
         return ""
+    clean_t = re.sub(r"\s*[\(\[].*?[\)\]]", "", title).strip() or title
+    clean_a = re.sub(r"\s*[\(\[].*?[\)\]]", "", artist).strip() or artist
+
+    # 1. iTunes 1400x1400 square cover
+    try:
+        query = f"{clean_a} {clean_t}"
+        url = "https://itunes.apple.com/search?" + urllib.parse.urlencode({"term": query, "entity": "song", "limit": 1})
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            import json
+            data = json.loads(resp.read().decode())
+            results = data.get("results", [])
+            if results:
+                raw_art = results[0].get("artworkUrl100", "")
+                if raw_art:
+                    return raw_art.replace("100x100bb", "1400x1400bb")
+    except Exception:
+        pass
+
+    # 2. Deezer 1000x1000 square cover
+    try:
+        query = f"{clean_a} {clean_t}"
+        url = "https://api.deezer.com/search?" + urllib.parse.urlencode({"q": query, "limit": 1})
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            import json
+            data = json.loads(resp.read().decode())
+            data_list = data.get("data", [])
+            if data_list:
+                album = data_list[0].get("album", {})
+                cover = album.get("cover_xl") or album.get("cover_big")
+                if cover:
+                    return cover
+    except Exception:
+        pass
+
+    return ""
+
+
+def download_cover(url: str | None, key: str | int, track: Optional[Dict[str, Any]] = None) -> str:
+    """Download cover image to cache and return local file path.
+    For YouTube Music, attempts to fetch pristine square album art from iTunes/Deezer first."""
     local_path = CACHE_DIR / f"yt_{key}.jpg"
     if local_path.is_file() and local_path.stat().st_size > 0:
         return str(local_path)
+
+    artist = ""
+    title = ""
+    if track and isinstance(track, dict):
+        artist = str(track.get("artist") or "")
+        title = str(track.get("name") or "")
+
+    # Try high-res square cover from iTunes/Deezer
+    highres_url = ""
+    if artist and title:
+        highres_url = fetch_highres_cover_url(artist, title)
+
+    download_target = highres_url or url
+    if not download_target:
+        return ""
+
     try:
         req = urllib.request.Request(
-            url,
+            download_target,
             headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
         )
-        with urllib.request.urlopen(req, timeout=6) as resp, open(local_path, "wb") as f:
-            f.write(resp.read())
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            img_data = resp.read()
+
+        # If it was a YouTube thumbnail fallback (likely 16:9), center-crop to 1:1 square
+        if not highres_url and (download_target == url):
+            try:
+                import io
+                from PIL import Image
+                im = Image.open(io.BytesIO(img_data))
+                w, h = im.size
+                if w != h and w > 0 and h > 0:
+                    min_dim = min(w, h)
+                    left = (w - min_dim) // 2
+                    top = (h - min_dim) // 2
+                    im_cropped = im.crop((left, top, left + min_dim, top + min_dim))
+                    im_cropped.convert("RGB").save(local_path, "JPEG", quality=92)
+                    return str(local_path)
+            except Exception:
+                pass
+
+        with open(local_path, "wb") as f:
+            f.write(img_data)
         return str(local_path)
     except Exception as e:
-        log.warning("Error descargando carátula YouTube %s: %s", url, e)
+        log.warning("Error descargando carátula YouTube %s: %s", download_target, e)
         return ""
 
 

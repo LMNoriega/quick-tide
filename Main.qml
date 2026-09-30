@@ -21,6 +21,7 @@ Window {
     readonly property bool isAlbumMode: currentMode === "albums"
     readonly property bool isPlaylistMode: currentMode === "playlists"
     readonly property color currentAccent: isPlaylistMode ? theme.blue : (isAlbumMode ? theme.peach : theme.mauve)
+    property bool isServicePillFocused: false
 
     Component.onCompleted: {
         if (!backend.isSetupWizard) {
@@ -91,6 +92,37 @@ Window {
         if (backend.isSetupWizard) {
             if (event.key === Qt.Key_Escape) {
                 backend.closeSettings();
+                event.accepted = true;
+                return;
+            }
+            if (event.key === Qt.Key_Left) {
+                setupWizardView.selectedIndex = 0;
+                backend.playSwitchSound();
+                event.accepted = true;
+                return;
+            }
+            if (event.key === Qt.Key_Right) {
+                setupWizardView.selectedIndex = 1;
+                backend.playSwitchSound();
+                event.accepted = true;
+                return;
+            }
+            if (event.key === Qt.Key_Tab) {
+                setupWizardView.selectedIndex = (setupWizardView.selectedIndex === 0 ? 1 : 0);
+                backend.playSwitchSound();
+                event.accepted = true;
+                return;
+            }
+            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                if (setupWizardView.selectedIndex === 0) {
+                    backend.selectService("youtube");
+                } else {
+                    if (backend.tidalLoggedIn) {
+                        backend.selectService("tidal");
+                    } else {
+                        backend.startTidalLogin();
+                    }
+                }
                 event.accepted = true;
                 return;
             }
@@ -382,9 +414,13 @@ Window {
                         Layout.preferredHeight: 36
                         Layout.preferredWidth: serviceContentRow.width + 20
                         radius: 10
-                        color: pillMouse.containsMouse ? Qt.alpha(theme.surface1, 0.8) : Qt.alpha(theme.surface0, 0.65)
-                        border.color: pillMouse.containsMouse ? root.currentAccent : Qt.alpha(theme.surface2, 0.70)
-                        border.width: 1
+                        color: (pillMouse.containsMouse || root.isServicePillFocused) ? Qt.alpha(theme.surface1, 0.9) : Qt.alpha(theme.surface0, 0.65)
+                        border.color: root.isServicePillFocused ? root.currentAccent : (pillMouse.containsMouse ? Qt.alpha(root.currentAccent, 0.8) : Qt.alpha(theme.surface2, 0.70))
+                        border.width: root.isServicePillFocused ? 2 : 1
+                        scale: root.isServicePillFocused ? 1.05 : 1.0
+
+                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+                        Behavior on border.color { ColorAnimation { duration: 150 } }
 
                         RowLayout {
                             id: serviceContentRow
@@ -400,9 +436,11 @@ Window {
                             }
 
                             Text {
-                                text: "⚙"
-                                font.pixelSize: 12
-                                color: theme.subtext0
+                                text: root.isServicePillFocused ? "[Enter]" : "⚙"
+                                font.family: "JetBrains Mono"
+                                font.pixelSize: root.isServicePillFocused ? 10 : 12
+                                font.bold: root.isServicePillFocused
+                                color: root.isServicePillFocused ? root.currentAccent : theme.subtext0
                             }
                         }
 
@@ -412,6 +450,7 @@ Window {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                root.isServicePillFocused = false;
                                 backend.openSettings();
                             }
                         }
@@ -437,14 +476,6 @@ Window {
                             font.pixelSize: 11
                             color: theme.subtext0
                         }
-                    }
-
-                    // Indicador de atajos
-                    Text {
-                        text: "[Tab] Modo • [Esc] Salir"
-                        font.family: "JetBrains Mono"
-                        font.pixelSize: 11
-                        color: theme.subtext1
                     }
                 }
 
@@ -618,6 +649,7 @@ Window {
                                 }
 
                                 onTextEdited: {
+                                    root.isServicePillFocused = false;
                                     searchInput.syncChars(text);
                                     backend.playTypeSound();
                                     backend.search(text, root.currentMode);
@@ -651,17 +683,30 @@ Window {
 
                                 Keys.onTabPressed: function(event) {
                                     backend.playSwitchSound();
-                                    let nextMode = "tracks";
-                                    if (root.isTrackMode) nextMode = "albums";
-                                    else if (root.isAlbumMode) nextMode = "playlists";
-                                    else nextMode = "tracks";
-
-                                    backend.setMode(nextMode, innerInput.text);
-                                    searchInput.forceFocus();
+                                    if (root.isServicePillFocused) {
+                                        root.isServicePillFocused = false;
+                                        backend.setMode("tracks", innerInput.text);
+                                        searchInput.forceFocus();
+                                    } else if (root.isPlaylistMode) {
+                                        root.isServicePillFocused = true;
+                                    } else if (root.isAlbumMode) {
+                                        backend.setMode("playlists", innerInput.text);
+                                        searchInput.forceFocus();
+                                    } else {
+                                        backend.setMode("albums", innerInput.text);
+                                        searchInput.forceFocus();
+                                    }
                                     event.accepted = true;
                                 }
 
                                 Keys.onReturnPressed: function(event) {
+                                    if (root.isServicePillFocused) {
+                                        root.isServicePillFocused = false;
+                                        backend.openSettings();
+                                        backend.playClickSound();
+                                        event.accepted = true;
+                                        return;
+                                    }
                                     if (resultsList.count > 0 && resultsList.currentIndex >= 0) {
                                         let selected = backend.results[resultsList.currentIndex];
                                         if (selected) {
@@ -1018,7 +1063,7 @@ Window {
                     Item { Layout.fillWidth: true }
 
                     Text {
-                        text: resultsList.count > 0 ? (resultsList.currentIndex + 1) + " de " + resultsList.count + " resultados" : ""
+                        text: (resultsList.count > 0 ? (resultsList.currentIndex + 1) + " de " + resultsList.count + " • " : "") + "[Tab] Modo • [Esc] Salir"
                         font.family: "JetBrains Mono"
                         font.pixelSize: 11
                         color: theme.subtext1
@@ -1607,6 +1652,7 @@ Window {
                 visible: opacity > 0.001
                 opacity: backend.isSetupWizard ? 1 : 0
                 enabled: backend.isSetupWizard
+                property int selectedIndex: (backend.activeService === "youtube" ? 0 : 1)
 
                 Behavior on opacity { NumberAnimation { duration: 200 } }
 
@@ -1681,10 +1727,12 @@ Window {
                         Layout.fillHeight: true
                         radius: 14
                         color: Qt.alpha(theme.surface0, 0.70)
-                        border.width: backend.activeService === "youtube" ? 2 : 1
-                        border.color: backend.activeService === "youtube" ? "#00d2ff" : (ytBtnMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
+                        border.width: setupWizardView.selectedIndex === 0 ? 2 : (backend.activeService === "youtube" ? 2 : 1)
+                        border.color: setupWizardView.selectedIndex === 0 ? "#00d2ff" : (backend.activeService === "youtube" ? Qt.alpha("#00d2ff", 0.7) : (ytBtnMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7)))
+                        scale: setupWizardView.selectedIndex === 0 ? 1.02 : 1.0
 
                         Behavior on border.color { ColorAnimation { duration: 180 } }
+                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -1848,10 +1896,12 @@ Window {
                         Layout.fillHeight: true
                         radius: 14
                         color: Qt.alpha(theme.surface0, 0.70)
-                        border.width: backend.activeService === "tidal" ? 2 : 1
-                        border.color: backend.activeService === "tidal" ? theme.mauve : (tidalBtnMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
+                        border.width: setupWizardView.selectedIndex === 1 ? 2 : (backend.activeService === "tidal" ? 2 : 1)
+                        border.color: setupWizardView.selectedIndex === 1 ? theme.mauve : (backend.activeService === "tidal" ? Qt.alpha(theme.mauve, 0.7) : (tidalBtnMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7)))
+                        scale: setupWizardView.selectedIndex === 1 ? 1.02 : 1.0
 
                         Behavior on border.color { ColorAnimation { duration: 180 } }
+                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -2056,10 +2106,11 @@ Window {
                     spacing: 8
 
                     Text {
-                        text: "Tip: Puedes cambiar de servicio en cualquier momento desde el botón ⚙ o con [Esc]"
+                        text: "[←/→] Cambiar selección • [Enter] Confirmar • [S] Sincronizar playlists"
                         font.family: "JetBrains Mono"
-                        font.pixelSize: 10
-                        color: theme.subtext1
+                        font.pixelSize: 11
+                        font.bold: true
+                        color: theme.mauve
                     }
 
                     Item { Layout.fillWidth: true }
@@ -2067,7 +2118,7 @@ Window {
                     Text {
                         text: "[Esc] Volver a la búsqueda"
                         font.family: "JetBrains Mono"
-                        font.pixelSize: 10
+                        font.pixelSize: 11
                         color: theme.subtext0
                     }
                 }

@@ -1014,7 +1014,7 @@ class TidalPlayerTUI:
         key = track.get("album_id") or track.get("id")
 
         def _cover_downloader():
-            c_path = music_backend.download_cover(cover_url, key)
+            c_path = music_backend.download_cover(cover_url, key, track)
             self.current_cover_path = c_path
             self.mpris.update_cover_art(c_path)
 
@@ -1062,7 +1062,7 @@ class TidalPlayerTUI:
                     n_cover = next_t.get("cover_url")
                     n_key = next_t.get("album_id") or next_t.get("id")
                     if n_cover:
-                        music_backend.download_cover(n_cover, n_key)
+                        music_backend.download_cover(n_cover, n_key, next_t)
                 except Exception:
                     pass
             threading.Thread(target=_prefetch_next, daemon=True).start()
