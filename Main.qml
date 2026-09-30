@@ -1682,14 +1682,14 @@ Window {
                         radius: 14
                         color: Qt.alpha(theme.surface0, 0.70)
                         border.width: backend.activeService === "youtube" ? 2 : 1
-                        border.color: backend.activeService === "youtube" ? "#00d2ff" : (ytMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
+                        border.color: backend.activeService === "youtube" ? "#00d2ff" : (ytBtnMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
 
                         Behavior on border.color { ColorAnimation { duration: 180 } }
 
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 16
-                            spacing: 10
+                            spacing: 8
 
                             RowLayout {
                                 Layout.fillWidth: true
@@ -1770,12 +1770,47 @@ Window {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                text: "Reproduce cualquier canción, álbum o playlist de inmediato. No requiere cuenta, API keys ni inicio de sesión. Streaming en formato Opus con letras sincronizadas de LRCLIB."
+                                text: "Reproduce cualquier canción, álbum o playlist de inmediato. Streaming en formato Opus con letras sincronizadas de LRCLIB."
                                 font.family: "JetBrains Mono"
                                 font.pixelSize: 11
                                 color: theme.subtext0
                                 wrapMode: Text.WordWrap
                                 lineHeight: 1.35
+                            }
+
+                            // Optional Browser Sync Option for Playlists
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 28
+                                radius: 6
+                                color: syncMouse.containsMouse ? Qt.alpha(theme.surface2, 0.8) : Qt.alpha(theme.surface1, 0.5)
+                                border.color: backend.youtubeLoggedIn ? Qt.alpha(theme.green, 0.5) : Qt.alpha(theme.surface2, 0.6)
+                                border.width: 1
+
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 6
+                                    Text {
+                                        text: backend.isSyncingYoutube ? "⏳" : (backend.youtubeLoggedIn ? "✔" : "󰀵")
+                                        font.pixelSize: 11
+                                        color: backend.youtubeLoggedIn ? theme.green : theme.subtext0
+                                    }
+                                    Text {
+                                        text: backend.isSyncingYoutube ? "Sincronizando..." : (backend.youtubeLoggedIn ? "Playlists sincronizadas (Zen Browser)" : "Sincronizar mis playlists desde Zen/Chromium")
+                                        font.family: "JetBrains Mono"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: backend.youtubeLoggedIn ? theme.green : theme.subtext0
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: syncMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: backend.syncYoutubeAccount()
+                                }
                             }
 
                             Rectangle {
@@ -1804,13 +1839,6 @@ Window {
                                 }
                             }
                         }
-
-                        MouseArea {
-                            id: ytMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: backend.selectService("youtube")
-                        }
                     }
 
                     // ================= CARD 2: TIDAL HI-FI =================
@@ -1821,14 +1849,14 @@ Window {
                         radius: 14
                         color: Qt.alpha(theme.surface0, 0.70)
                         border.width: backend.activeService === "tidal" ? 2 : 1
-                        border.color: backend.activeService === "tidal" ? theme.mauve : (tidalMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
+                        border.color: backend.activeService === "tidal" ? theme.mauve : (tidalBtnMouse.containsMouse ? Qt.alpha(theme.surface2, 0.9) : Qt.alpha(theme.surface1, 0.7))
 
                         Behavior on border.color { ColorAnimation { duration: 180 } }
 
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 16
-                            spacing: 10
+                            spacing: 8
 
                             RowLayout {
                                 Layout.fillWidth: true
@@ -2016,19 +2044,6 @@ Window {
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: backend.startTidalLogin()
                                     }
-                                }
-                            }
-                        }
-
-                        MouseArea {
-                            id: tidalMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                if (backend.tidalLoggedIn) {
-                                    backend.selectService("tidal");
-                                } else {
-                                    backend.startTidalLogin();
                                 }
                             }
                         }

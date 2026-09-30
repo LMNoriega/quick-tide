@@ -123,11 +123,16 @@ class TidalSearchBackend(QObject):
     isLoggingInTidalChanged = pyqtSignal()
     tidalLoginStatusChanged = pyqtSignal()
 
+    youtubeLoggedInChanged = pyqtSignal()
+    isSyncingYoutubeChanged = pyqtSignal()
+    youtubeLoginStatusChanged = pyqtSignal()
+
     _searchDoneSignal = pyqtSignal(list, str, str)
     _userPlaylistsLoadedSignal = pyqtSignal(list)
     _detailDoneSignal = pyqtSignal(dict, list)
     _tidalLoginSuccessSignal = pyqtSignal(str)
     _tidalLoginErrorSignal = pyqtSignal(str)
+    _youtubeSyncDoneSignal = pyqtSignal(bool, str)
 
     def __init__(self, app_instance):
         super().__init__()
@@ -142,6 +147,10 @@ class TidalSearchBackend(QObject):
         self._tidal_user_code = ""
         self._is_logging_in_tidal = False
         self._tidal_login_status = ""
+
+        self._youtube_logged_in = ytmusic_backend.is_logged_in()
+        self._is_syncing_youtube = False
+        self._youtube_login_status = "Playlists sincronizadas" if self._youtube_logged_in else "Sin sincronizar"
 
         if self._active_service == "youtube":
             self._status_text = "Ingresa al menos 2 caracteres para buscar en YouTube Music..."
@@ -169,10 +178,10 @@ class TidalSearchBackend(QObject):
         self._detailDoneSignal.connect(self._on_detail_completed)
         self._tidalLoginSuccessSignal.connect(self._on_tidal_login_success)
         self._tidalLoginErrorSignal.connect(self._on_tidal_login_error)
+        self._youtubeSyncDoneSignal.connect(self._on_youtube_sync_done)
 
-        # Cargar playlists del usuario en segundo plano si Tidal está activo
-        if self._active_service == "tidal" and self._tidal_logged_in:
-            threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
+        # Cargar playlists de usuario en segundo plano según el servicio activo
+        threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
 
     def _fetch_user_playlists_worker(self):
         try:
@@ -216,6 +225,18 @@ class TidalSearchBackend(QObject):
     @pyqtProperty(str, notify=tidalLoginStatusChanged)
     def tidalLoginStatus(self):
         return self._tidal_login_status
+
+    @pyqtProperty(bool, notify=youtubeLoggedInChanged)
+    def youtubeLoggedIn(self):
+        return self._youtube_logged_in
+
+    @pyqtProperty(bool, notify=isSyncingYoutubeChanged)
+    def isSyncingYoutube(self):
+        return self._is_syncing_youtube
+
+    @pyqtProperty(str, notify=youtubeLoginStatusChanged)
+    def youtubeLoginStatus(self):
+        return self._youtube_login_status
 
     @pyqtProperty("QVariantMap", notify=themeChanged)
     def theme(self):
@@ -283,17 +304,25 @@ class TidalSearchBackend(QObject):
         self.tidalLoginStatusChanged.emit()
 
         def _on_success(user_name):
-            self._tidalLoginSuccessSignal.emit(user_name)
+            try:
+                self._tidalLoginSuccessSignal.emit(user_name)
+            except RuntimeError:
+                pass
 
         def _on_error(err):
-            self._tidalLoginErrorSignal.emit(err)
+            try:
+                self._tidalLoginErrorSignal.emit(err)
+            except RuntimeError:
+                pass
 
         def _starter():
             try:
                 auth_url, user_code = tidal_backend.start_oauth_login(on_success=_on_success, on_error=_on_error)
+                if not auth_url.startswith("http"):
+                    auth_url = "https://" + auth_url
                 self._tidal_auth_url = auth_url
                 self._tidal_user_code = user_code
-                self._tidal_login_status = "Esperando confirmación en el navegador..."
+                self._tidal_login_status = f"Por favor autoriza el código {user_code} en tu navegador..."
                 self.tidalAuthUrlChanged.emit()
                 self.tidalUserCodeChanged.emit()
                 self.tidalLoginStatusChanged.emit()
@@ -314,12 +343,38 @@ class TidalSearchBackend(QObject):
         self.isLoggingInTidalChanged.emit()
         self.tidalLoginStatusChanged.emit()
         self.playClickSound()
+        self.selectService("tidal")
 
     def _on_tidal_login_error(self, err: str):
         self._is_logging_in_tidal = False
         self._tidal_login_status = f"Error al iniciar sesión: {err}"
         self.isLoggingInTidalChanged.emit()
         self.tidalLoginStatusChanged.emit()
+
+    @pyqtSlot()
+    def syncYoutubeAccount(self):
+        self.playClickSound()
+        self._is_syncing_youtube = True
+        self._youtube_login_status = "Detectando navegadores y sincronizando playlists..."
+        self.isSyncingYoutubeChanged.emit()
+        self.youtubeLoginStatusChanged.emit()
+
+        def _worker():
+            ok, msg = ytmusic_backend.sync_browser_cookies()
+            self._youtubeSyncDoneSignal.emit(ok, msg)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_youtube_sync_done(self, ok: bool, msg: str):
+        self._is_syncing_youtube = False
+        self._youtube_logged_in = ok
+        self._youtube_login_status = msg
+        self.isSyncingYoutubeChanged.emit()
+        self.youtubeLoggedInChanged.emit()
+        self.youtubeLoginStatusChanged.emit()
+        if ok:
+            self.playClickSound()
+            threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
 
     @pyqtSlot()
     def openSettings(self):

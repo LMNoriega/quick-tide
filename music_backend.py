@@ -178,4 +178,9 @@ def get_user_playlists() -> List[Dict[str, Any]]:
         for p in pls:
             p["provider"] = "tidal"
         return pls
+    elif svc == "youtube" and ytmusic_backend.is_logged_in():
+        pls = ytmusic_backend.get_user_playlists()
+        for p in pls:
+            p["provider"] = "youtube"
+        return pls
     return []

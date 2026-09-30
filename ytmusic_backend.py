@@ -23,7 +23,112 @@ log = logging.getLogger(__name__)
 CACHE_DIR = Path.home() / ".cache" / "tidal-gui" / "covers"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+COOKIES_FILE = os.path.expanduser("~/.config/quick-tide/youtube_cookies.txt")
+
 _stream_url_cache: Dict[str, Tuple[str, float]] = {}
+
+
+def get_ydl_opts(extra_opts: Optional[dict] = None) -> dict:
+    opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+    }
+    if os.path.isfile(COOKIES_FILE) and os.path.getsize(COOKIES_FILE) > 50:
+        opts["cookiefile"] = COOKIES_FILE
+    if extra_opts:
+        opts.update(extra_opts)
+    return opts
+
+
+def is_logged_in() -> bool:
+    """Returns True if cookies file exists and has content."""
+    return os.path.isfile(COOKIES_FILE) and os.path.getsize(COOKIES_FILE) > 50
+
+
+def sync_browser_cookies() -> Tuple[bool, str]:
+    """
+    Attempts to extract YouTube cookies from installed browsers (Zen Browser, Chromium, Firefox)
+    and saves them to ~/.config/quick-tide/youtube_cookies.txt.
+    """
+    import glob
+    candidates = []
+
+    # 1. Zen Browser profile
+    zen_profiles = glob.glob(os.path.expanduser("~/.config/zen/*Default*"))
+    for zp in zen_profiles:
+        if os.path.isfile(os.path.join(zp, "cookies.sqlite")):
+            candidates.append(("firefox", zp, "Zen Browser"))
+
+    # 2. Chromium
+    candidates.append(("chromium", None, "Chromium"))
+
+    # 3. Firefox standard
+    ff_profiles = glob.glob(os.path.expanduser("~/.mozilla/firefox/*.default*"))
+    for fp in ff_profiles:
+        if os.path.isfile(os.path.join(fp, "cookies.sqlite")):
+            candidates.append(("firefox", fp, "Firefox"))
+
+    os.makedirs(os.path.dirname(COOKIES_FILE), exist_ok=True)
+
+    for browser_type, profile_path, display_name in candidates:
+        try:
+            ydl_opts = {
+                "cookiesfrombrowser": (browser_type, profile_path, None, None),
+                "cookiefile": COOKIES_FILE,
+                "quiet": True,
+                "skip_download": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                cj = ydl.cookiejar
+                yt_c = [c for c in cj if "youtube.com" in getattr(c, "domain", "")]
+                if yt_c:
+                    cj.save(COOKIES_FILE, ignore_discard=True, ignore_expires=True)
+                    log.info("Extracted %d YouTube cookies from %s", len(yt_c), display_name)
+                    return True, f"Sincronizado con éxito desde {display_name} ({len(yt_c)} cookies)"
+        except Exception as e:
+            log.debug("Cookie extraction from %s failed: %s", display_name, e)
+
+    return False, "No se encontraron cookies activas de YouTube en los navegadores del sistema."
+
+
+def get_user_playlists() -> List[Dict[str, Any]]:
+    """Fetches the authenticated user's YouTube playlists if logged in."""
+    if not is_logged_in():
+        return []
+
+    ydl_opts = get_ydl_opts({
+        "extract_flat": True,
+    })
+    results = []
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            res = ydl.extract_info("https://www.youtube.com/feed/playlists", download=False)
+            entries = res.get("entries", [])
+            for e in entries:
+                if not e:
+                    continue
+                v_id = e.get("id")
+                title = e.get("title", "Playlist")
+                uploader = e.get("uploader", "Tú")
+                thumbnails = e.get("thumbnails") or []
+                cover_url = thumbnails[-1].get("url") if thumbnails else e.get("thumbnail", "")
+
+                results.append({
+                    "id": v_id,
+                    "type": "playlist",
+                    "provider": "youtube",
+                    "name": title,
+                    "creator": uploader or "Tú",
+                    "num_tracks": e.get("playlist_count") or 0,
+                    "cover_url": cover_url,
+                    "is_user": True,
+                })
+    except Exception as e:
+        log.warning("No se pudieron cargar las playlists de usuario de YouTube: %s", e)
+
+    return results
 
 
 def format_duration(seconds: int | float | None) -> str:
