@@ -49,12 +49,27 @@ _client_lock = threading.Lock()
 _client_instance: Optional[TidalClient] = None
 
 
+QUICKTIDE_SESSION = os.path.expanduser("~/.config/quick-tide/session.json")
+LOWTIDE_SESSION = os.path.expanduser("~/.config/low-tide/session.json")
+
+
 def is_logged_in() -> bool:
-    try:
-        client = get_client()
-        return client.is_logged_in()
-    except Exception:
-        return False
+    global _client_instance
+    if _client_instance is not None:
+        try:
+            return _client_instance.is_logged_in()
+        except Exception:
+            return False
+    for p in [QUICKTIDE_SESSION, LOWTIDE_SESSION]:
+        if os.path.isfile(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                if d.get("access_token"):
+                    return True
+            except Exception:
+                pass
+    return False
 
 
 def start_oauth_login(on_success=None, on_error=None) -> Tuple[str, str]:

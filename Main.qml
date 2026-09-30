@@ -40,8 +40,15 @@ Window {
             }
         }
         function onIsSetupWizardChanged() {
-            if (!backend.isSetupWizard && !backend.isDetailView) {
-                searchInput.forceFocus();
+            if (backend.isSetupWizard) {
+                innerInput.focus = false;
+                setupWizardView.selectedIndex = (backend.activeService === "youtube" ? 0 : 1);
+                setupWizardView.forceActiveFocus();
+            } else {
+                root.isServicePillFocused = false;
+                if (!backend.isDetailView) {
+                    searchInput.forceFocus();
+                }
             }
         }
     }
@@ -325,12 +332,16 @@ Window {
                             x: root.isPlaylistMode ? (3 + (parent.width - 6) * 2 / 3) : (root.isAlbumMode ? (3 + (parent.width - 6) / 3) : 3)
                             radius: 8
                             color: Qt.alpha(root.currentAccent, 0.90)
+                            opacity: root.isServicePillFocused ? 0 : 1
 
                             Behavior on x {
                                 NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
                             }
                             Behavior on color {
                                 ColorAnimation { duration: 220 }
+                            }
+                            Behavior on opacity {
+                                NumberAnimation { duration: 150 }
                             }
                         }
 
@@ -345,12 +356,13 @@ Window {
                                     font.family: "JetBrains Mono"
                                     font.pixelSize: 11
                                     font.bold: true
-                                    color: root.isTrackMode ? theme.crust : theme.subtext0
+                                    color: (!root.isServicePillFocused && root.isTrackMode) ? theme.crust : theme.subtext0
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
+                                        root.isServicePillFocused = false;
                                         if (!root.isTrackMode) {
                                             backend.playSwitchSound();
                                             backend.setMode("tracks", searchInput.inputText);
@@ -368,12 +380,13 @@ Window {
                                     font.family: "JetBrains Mono"
                                     font.pixelSize: 11
                                     font.bold: true
-                                    color: root.isAlbumMode ? theme.crust : theme.subtext0
+                                    color: (!root.isServicePillFocused && root.isAlbumMode) ? theme.crust : theme.subtext0
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
+                                        root.isServicePillFocused = false;
                                         if (!root.isAlbumMode) {
                                             backend.playSwitchSound();
                                             backend.setMode("albums", searchInput.inputText);
@@ -391,12 +404,13 @@ Window {
                                     font.family: "JetBrains Mono"
                                     font.pixelSize: 11
                                     font.bold: true
-                                    color: root.isPlaylistMode ? theme.crust : theme.subtext0
+                                    color: (!root.isServicePillFocused && root.isPlaylistMode) ? theme.crust : theme.subtext0
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
+                                        root.isServicePillFocused = false;
                                         if (!root.isPlaylistMode) {
                                             backend.playSwitchSound();
                                             backend.setMode("playlists", searchInput.inputText);
@@ -414,13 +428,14 @@ Window {
                         Layout.preferredHeight: 36
                         Layout.preferredWidth: serviceContentRow.width + 20
                         radius: 10
-                        color: (pillMouse.containsMouse || root.isServicePillFocused) ? Qt.alpha(theme.surface1, 0.9) : Qt.alpha(theme.surface0, 0.65)
+                        color: root.isServicePillFocused ? Qt.alpha(root.currentAccent, 0.90) : (pillMouse.containsMouse ? Qt.alpha(theme.surface1, 0.8) : Qt.alpha(theme.surface0, 0.65))
                         border.color: root.isServicePillFocused ? root.currentAccent : (pillMouse.containsMouse ? Qt.alpha(root.currentAccent, 0.8) : Qt.alpha(theme.surface2, 0.70))
-                        border.width: root.isServicePillFocused ? 2 : 1
-                        scale: root.isServicePillFocused ? 1.05 : 1.0
+                        border.width: 1
+                        scale: root.isServicePillFocused ? 1.04 : 1.0
 
                         Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
+                        Behavior on color { ColorAnimation { duration: 180 } }
+                        Behavior on border.color { ColorAnimation { duration: 180 } }
 
                         RowLayout {
                             id: serviceContentRow
@@ -432,7 +447,7 @@ Window {
                                 font.family: "JetBrains Mono"
                                 font.pixelSize: 11
                                 font.bold: true
-                                color: backend.activeService === "youtube" ? "#00d2ff" : theme.mauve
+                                color: root.isServicePillFocused ? theme.crust : (backend.activeService === "youtube" ? "#00d2ff" : theme.mauve)
                             }
 
                             Text {
@@ -440,7 +455,7 @@ Window {
                                 font.family: "JetBrains Mono"
                                 font.pixelSize: root.isServicePillFocused ? 10 : 12
                                 font.bold: root.isServicePillFocused
-                                color: root.isServicePillFocused ? root.currentAccent : theme.subtext0
+                                color: root.isServicePillFocused ? theme.crust : theme.subtext0
                             }
                         }
 
@@ -1653,6 +1668,53 @@ Window {
                 opacity: backend.isSetupWizard ? 1 : 0
                 enabled: backend.isSetupWizard
                 property int selectedIndex: (backend.activeService === "youtube" ? 0 : 1)
+                focus: backend.isSetupWizard
+
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Escape) {
+                        backend.closeSettings();
+                        event.accepted = true;
+                        return;
+                    }
+                    if (event.key === Qt.Key_Left) {
+                        setupWizardView.selectedIndex = 0;
+                        backend.playSwitchSound();
+                        event.accepted = true;
+                        return;
+                    }
+                    if (event.key === Qt.Key_Right) {
+                        setupWizardView.selectedIndex = 1;
+                        backend.playSwitchSound();
+                        event.accepted = true;
+                        return;
+                    }
+                    if (event.key === Qt.Key_Tab) {
+                        setupWizardView.selectedIndex = (setupWizardView.selectedIndex === 0 ? 1 : 0);
+                        backend.playSwitchSound();
+                        event.accepted = true;
+                        return;
+                    }
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                        if (setupWizardView.selectedIndex === 0) {
+                            backend.selectService("youtube");
+                        } else {
+                            if (backend.tidalLoggedIn) {
+                                backend.selectService("tidal");
+                            } else {
+                                backend.startTidalLogin();
+                            }
+                        }
+                        event.accepted = true;
+                        return;
+                    }
+                    if (event.key === Qt.Key_S || event.key === Qt.Key_Y) {
+                        if (setupWizardView.selectedIndex === 0) {
+                            backend.syncYoutubeAccount();
+                            event.accepted = true;
+                            return;
+                        }
+                    }
+                }
 
                 Behavior on opacity { NumberAnimation { duration: 200 } }
 
