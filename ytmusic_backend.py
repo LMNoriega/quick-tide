@@ -16,8 +16,6 @@ import urllib.parse
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-import yt_dlp
-
 log = logging.getLogger(__name__)
 
 CACHE_DIR = Path.home() / ".cache" / "tidal-gui" / "covers"
@@ -26,6 +24,15 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 COOKIES_FILE = os.path.expanduser("~/.config/quick-tide/youtube_cookies.txt")
 
 _stream_url_cache: Dict[str, Tuple[str, float]] = {}
+_ydl_module = None
+
+
+def get_ytdl():
+    global _ydl_module
+    if _ydl_module is None:
+        import yt_dlp
+        _ydl_module = yt_dlp
+    return _ydl_module
 
 
 def get_ydl_opts(extra_opts: Optional[dict] = None) -> dict:
@@ -80,7 +87,7 @@ def sync_browser_cookies() -> Tuple[bool, str]:
                 "quiet": True,
                 "skip_download": True,
             }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with get_ytdl().YoutubeDL(ydl_opts) as ydl:
                 cj = ydl.cookiejar
                 yt_c = [c for c in cj if "youtube.com" in getattr(c, "domain", "")]
                 if yt_c:
@@ -103,7 +110,7 @@ def get_user_playlists() -> List[Dict[str, Any]]:
     })
     results = []
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with get_ytdl().YoutubeDL(ydl_opts) as ydl:
             res = ydl.extract_info("https://www.youtube.com/feed/playlists", download=False)
             entries = res.get("entries", [])
             for e in entries:
@@ -279,7 +286,7 @@ def search_tracks(query: str, limit: int = 35) -> List[Dict[str, Any]]:
     })
     results = []
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with get_ytdl().YoutubeDL(ydl_opts) as ydl:
             res = ydl.extract_info(f"ytsearch{limit}:{query} audio", download=False)
             entries = res.get("entries", [])
             for e in entries:
@@ -323,7 +330,7 @@ def search_albums(query: str, limit: int = 25) -> List[Dict[str, Any]]:
     })
     results = []
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with get_ytdl().YoutubeDL(ydl_opts) as ydl:
             res = ydl.extract_info(f"ytsearch{limit}:{query} full album", download=False)
             entries = res.get("entries", [])
             for e in entries:
@@ -359,7 +366,7 @@ def search_playlists(query: str, limit: int = 25) -> List[Dict[str, Any]]:
     })
     results = []
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with get_ytdl().YoutubeDL(ydl_opts) as ydl:
             res = ydl.extract_info(f"ytsearch{limit}:{query} playlist", download=False)
             entries = res.get("entries", [])
             for e in entries:
@@ -394,7 +401,7 @@ def get_track_details(track_id: str) -> Optional[Dict[str, Any]]:
         "format": "bestaudio/best",
     })
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with get_ytdl().YoutubeDL(ydl_opts) as ydl:
             e = ydl.extract_info(url, download=False)
             if not e:
                 return None
@@ -439,7 +446,7 @@ def get_playlist_tracks(playlist_id: str) -> List[Dict[str, Any]]:
     })
     results = []
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with get_ytdl().YoutubeDL(ydl_opts) as ydl:
             res = ydl.extract_info(url, download=False)
             entries = res.get("entries", [])
             for idx, e in enumerate(entries):

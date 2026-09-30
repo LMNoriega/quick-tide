@@ -183,6 +183,14 @@ class TidalSearchBackend(QObject):
         # Cargar playlists de usuario en segundo plano según el servicio activo
         threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
 
+        # Warmup de yt-dlp en segundo plano para que la primera búsqueda sea instantánea
+        def _warmup():
+            try:
+                ytmusic_backend.get_ytdl()
+            except Exception:
+                pass
+        threading.Thread(target=_warmup, daemon=True).start()
+
     def _fetch_user_playlists_worker(self):
         try:
             pls = music_backend.get_user_playlists()

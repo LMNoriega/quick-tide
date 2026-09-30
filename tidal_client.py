@@ -9,34 +9,31 @@ import threading
 import time
 from typing import Optional, Tuple, Callable
 
-import tidalapi
-from tidalapi.media import Quality
+_tidalapi = None
+_QUALITY_MAP = None
+_QUALITY_ORDER = None
 
-log = logging.getLogger(__name__)
 
-QUICKTIDE_DIR = os.path.join(os.path.expanduser("~"), ".config", "quick-tide")
-QUICKTIDE_SESSION = os.path.join(QUICKTIDE_DIR, "session.json")
-
-LOWTIDE_DIR = os.path.join(os.path.expanduser("~"), ".config", "low-tide")
-LOWTIDE_SESSION = os.path.join(LOWTIDE_DIR, "session.json")
-
-_QUALITY_MAP = {
-    "low": Quality.low_96k,
-    "high": Quality.low_320k,
-    "lossless": Quality.high_lossless,
-    "hi_res": Quality.hi_res_lossless,
-    "max": Quality.hi_res_lossless,
-}
-
-_QUALITY_ORDER = [
-    Quality.hi_res_lossless,
-    Quality.high_lossless,
-    Quality.low_320k,
-    Quality.low_96k,
-]
-
-_MIN_CALL_INTERVAL = 0.3
-_MAX_RETRIES = 2
+def _get_tidalapi():
+    global _tidalapi, _QUALITY_MAP, _QUALITY_ORDER
+    if _tidalapi is None:
+        import tidalapi
+        from tidalapi.media import Quality
+        _tidalapi = tidalapi
+        _QUALITY_MAP = {
+            "low": Quality.low_96k,
+            "high": Quality.low_320k,
+            "lossless": Quality.high_lossless,
+            "hi_res": Quality.hi_res_lossless,
+            "max": Quality.hi_res_lossless,
+        }
+        _QUALITY_ORDER = [
+            Quality.hi_res_lossless,
+            Quality.high_lossless,
+            Quality.low_320k,
+            Quality.low_96k,
+        ]
+    return _tidalapi
 
 
 class TidalClient:
@@ -44,8 +41,9 @@ class TidalClient:
         self._api_lock = threading.Lock()
         self._quality_lock = threading.Lock()
         self._last_call_time = 0.0
-        quality = Quality.high_lossless
-        self.session = tidalapi.Session(tidalapi.Config(quality=quality))
+        tapi = _get_tidalapi()
+        quality = _QUALITY_MAP.get("lossless")
+        self.session = tapi.Session(tapi.Config(quality=quality))
         self._quality_floor = 0
         self._manifest_dir = os.path.join(tempfile.gettempdir(), "quick-tide-manifests")
         self._clear_manifests()
