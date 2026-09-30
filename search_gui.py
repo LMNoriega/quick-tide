@@ -194,7 +194,8 @@ class TidalSearchBackend(QObject):
         self._user_playlists = playlists
         if self._current_mode == "playlists" and len(self._pending_query) < 2 and not self._is_detail_view:
             self._results = list(self._user_playlists)
-            self._status_text = "Tus playlists guardadas en Tidal" if self._results else "No tienes playlists guardadas en tu cuenta"
+            svc_name = "YouTube Music" if self._active_service == "youtube" else "Tidal"
+            self._status_text = f"Tus playlists guardadas en {svc_name}" if self._results else f"No tienes playlists guardadas en {svc_name}"
             self.resultsChanged.emit()
             self.statusTextChanged.emit()
 
@@ -287,10 +288,8 @@ class TidalSearchBackend(QObject):
         self._status_text = f"Servicio activo: {svc_name}. Ingresa texto para buscar..."
         self.statusTextChanged.emit()
 
-        if service == "tidal" and self._tidal_logged_in:
-            threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
-        else:
-            self._user_playlists = []
+        # Cargar playlists de usuario para el servicio seleccionado
+        threading.Thread(target=self._fetch_user_playlists_worker, daemon=True).start()
 
         if len(self._pending_query) >= 2:
             self._debounce_timer.start()
@@ -406,15 +405,13 @@ class TidalSearchBackend(QObject):
             self._is_searching = False
             self.isSearchingChanged.emit()
 
-            if mode == "playlists" and self._active_service == "tidal":
+            if mode == "playlists":
                 self._results = list(self._user_playlists)
-                self._status_text = "Tus playlists guardadas en Tidal" if self._results else "Cargando tus playlists..."
+                self._status_text = f"Tus playlists guardadas en {svc_name}" if self._results else f"No tienes playlists guardadas en {svc_name}"
             else:
                 self._results = []
                 if mode == "albums":
                     self._status_text = f"Ingresa al menos 2 caracteres para buscar álbumes en {svc_name}..."
-                elif mode == "playlists":
-                    self._status_text = f"Ingresa al menos 2 caracteres para buscar playlists en {svc_name}..."
                 else:
                     self._status_text = f"Ingresa al menos 2 caracteres para buscar canciones en {svc_name}..."
 
@@ -439,7 +436,7 @@ class TidalSearchBackend(QObject):
                 items = music_backend.search_albums(query, limit=35)
             elif mode == "playlists":
                 items = music_backend.search_playlists(query, limit=35)
-                if self._user_playlists and self._active_service == "tidal":
+                if self._user_playlists:
                     q_lower = query.lower()
                     matching_user = [p for p in self._user_playlists if q_lower in str(p.get("name", "")).lower()]
                     seen = {p.get("id") for p in matching_user}

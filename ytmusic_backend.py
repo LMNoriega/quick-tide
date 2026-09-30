@@ -195,13 +195,10 @@ def download_cover(url: str | None, key: str | int) -> str:
 
 def search_tracks(query: str, limit: int = 35) -> List[Dict[str, Any]]:
     """Search YouTube Music / YouTube for tracks with Opus stream quality."""
-    ydl_opts = {
+    ydl_opts = get_ydl_opts({
         "format": "bestaudio/best",
         "extract_flat": "in_playlist",
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-    }
+    })
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -242,13 +239,10 @@ def search_tracks(query: str, limit: int = 35) -> List[Dict[str, Any]]:
 
 def search_albums(query: str, limit: int = 25) -> List[Dict[str, Any]]:
     """Search for full albums or music compilations on YouTube."""
-    ydl_opts = {
+    ydl_opts = get_ydl_opts({
         "format": "bestaudio/best",
         "extract_flat": "in_playlist",
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-    }
+    })
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -282,12 +276,9 @@ def search_albums(query: str, limit: int = 25) -> List[Dict[str, Any]]:
 
 def search_playlists(query: str, limit: int = 25) -> List[Dict[str, Any]]:
     """Search for music playlists on YouTube."""
-    ydl_opts = {
+    ydl_opts = get_ydl_opts({
         "extract_flat": True,
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-    }
+    })
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -321,12 +312,9 @@ def search_playlists(query: str, limit: int = 25) -> List[Dict[str, Any]]:
 def get_track_details(track_id: str) -> Optional[Dict[str, Any]]:
     """Extract full metadata for a single YouTube track."""
     url = f"https://www.youtube.com/watch?v={track_id}" if not track_id.startswith("http") else track_id
-    ydl_opts = {
+    ydl_opts = get_ydl_opts({
         "format": "bestaudio/best",
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-    }
+    })
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             e = ydl.extract_info(url, download=False)
@@ -368,12 +356,9 @@ def get_album_tracks(album_id: str) -> List[Dict[str, Any]]:
 def get_playlist_tracks(playlist_id: str) -> List[Dict[str, Any]]:
     """Get tracks contained in a YouTube playlist."""
     url = f"https://www.youtube.com/playlist?list={playlist_id}" if not playlist_id.startswith("http") else playlist_id
-    ydl_opts = {
+    ydl_opts = get_ydl_opts({
         "extract_flat": True,
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-    }
+    })
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
