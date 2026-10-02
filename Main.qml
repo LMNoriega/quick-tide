@@ -442,12 +442,23 @@ Window {
                             anchors.centerIn: parent
                             spacing: 6
 
-                            Text {
-                                text: backend.activeService === "youtube" ? "󰗃 YT Music" : "🌊 Tidal"
-                                font.family: "JetBrains Mono"
-                                font.pixelSize: 11
-                                font.bold: true
-                                color: root.isServicePillFocused ? theme.crust : (backend.activeService === "youtube" ? "#00d2ff" : theme.mauve)
+                            RowLayout {
+                                spacing: 5
+                                Image {
+                                    visible: backend.activeService === "tidal"
+                                    Layout.preferredWidth: 13
+                                    Layout.preferredHeight: 13
+                                    source: root.isServicePillFocused ? "assets/icons/tidal_dark.png" : "assets/icons/tidal_mauve.png"
+                                    fillMode: Image.PreserveAspectFit
+                                    smooth: true
+                                }
+                                Text {
+                                    text: backend.activeService === "youtube" ? "󰗃 YT Music" : "Tidal"
+                                    font.family: "JetBrains Mono"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    color: root.isServicePillFocused ? theme.crust : (backend.activeService === "youtube" ? "#00d2ff" : theme.mauve)
+                                }
                             }
 
                             Text {
@@ -1974,9 +1985,12 @@ Window {
                                 Layout.fillWidth: true
                                 spacing: 10
 
-                                Text {
-                                    text: "🌊"
-                                    font.pixelSize: 26
+                                Image {
+                                    Layout.preferredWidth: 26
+                                    Layout.preferredHeight: 26
+                                    source: "assets/icons/tidal_mauve.png"
+                                    fillMode: Image.PreserveAspectFit
+                                    smooth: true
                                 }
 
                                 ColumnLayout {

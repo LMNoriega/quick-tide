@@ -193,6 +193,12 @@ if [ "$ACTION" = "update" ]; then
         cp -rf "$DIR/assets/sounds/"* "$TARGET_SHARE/sounds/"
     fi
 
+    # Copiar iconos y assets
+    if [ -d "$DIR/assets/icons" ]; then
+        mkdir -p "$TARGET_SHARE/assets/icons"
+        cp -rf "$DIR/assets/icons/"* "$TARGET_SHARE/assets/icons/"
+    fi
+
     # Instalar ejecutables en ~/.local/bin
     chmod +x "$DIR/bin/"*
     ln -sf "$TARGET_SHARE/bin/tidal-search-gui" "$HOME/.local/bin/tidal-search-gui" 2>/dev/null || ln -sf "$DIR/bin/tidal-search-gui" "$HOME/.local/bin/tidal-search-gui"
@@ -336,6 +342,12 @@ chmod +x "$TARGET_SHARE/bin/"*
 if [ -d "$DIR/assets/sounds" ]; then
     cp -rf "$DIR/assets/sounds/"* "$TARGET_SHARE/sounds/"
     echo -e "  ${GREEN}✔ Efectos de sonido integrados instalados en ~/.local/share/quick-tide/sounds/${RESET}"
+fi
+
+# Copiar iconos y assets
+if [ -d "$DIR/assets/icons" ]; then
+    mkdir -p "$TARGET_SHARE/assets/icons"
+    cp -rf "$DIR/assets/icons/"* "$TARGET_SHARE/assets/icons/"
 fi
 
 # Enlazar ejecutables en ~/.local/bin
