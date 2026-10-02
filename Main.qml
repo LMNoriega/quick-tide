@@ -947,9 +947,9 @@ Window {
 
                                         Text {
                                             text: itemData.type === "playlist"
-                                                  ? (itemData.description ? itemData.description : (itemData.num_tracks + " temas"))
+                                                  ? (itemData.description ? itemData.description : ((itemData.num_tracks && itemData.num_tracks > 0) ? (itemData.num_tracks + " temas") : "Playlist"))
                                                   : (itemData.type === "album"
-                                                     ? (itemData.year ? itemData.year + " (" + itemData.num_tracks + " temas)" : itemData.num_tracks + " temas")
+                                                     ? (itemData.year ? itemData.year + ((itemData.num_tracks && itemData.num_tracks > 0) ? " (" + itemData.num_tracks + " temas)" : "") : ((itemData.num_tracks && itemData.num_tracks > 0) ? itemData.num_tracks + " temas" : "Álbum"))
                                                      : (itemData.album || ""))
                                             font.family: "JetBrains Mono"
                                             font.pixelSize: 11
@@ -968,7 +968,7 @@ Window {
                                     Text {
                                         anchors.right: parent.right
                                         text: (itemData.type === "album" || itemData.type === "playlist")
-                                              ? (itemData.num_tracks + " pistas")
+                                              ? ((itemData.num_tracks && itemData.num_tracks > 0) ? (itemData.num_tracks + " pistas") : "Colección")
                                               : (itemData.duration_str || "")
                                         font.family: "JetBrains Mono"
                                         font.pixelSize: 11
@@ -1260,7 +1260,13 @@ Window {
                                 }
 
                                 Text {
-                                    text: backend.detailData ? (backend.detailData.num_tracks + " temas") : ""
+                                    text: backend.detailData
+                                          ? (detailTrackList.count > 0
+                                             ? (detailTrackList.count + " temas")
+                                             : ((backend.detailData.num_tracks && backend.detailData.num_tracks > 0)
+                                                ? (backend.detailData.num_tracks + " temas")
+                                                : "Colección"))
+                                          : ""
                                     font.family: "JetBrains Mono"
                                     font.pixelSize: 11
                                     color: theme.subtext1
@@ -1741,8 +1747,6 @@ Window {
 
                     ColumnLayout {
                         spacing: 2
-                        Layout.fillWidth: true
-
                         Text {
                             text: "Configuración de Servicios de Música"
                             font.family: "JetBrains Mono"
@@ -1759,13 +1763,18 @@ Window {
                         }
                     }
 
-                    // Botón cerrar
+                    Item {
+                        Layout.fillWidth: true
+                    }
+
+                    // Botón cerrar en la esquina superior derecha
                     Rectangle {
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                         Layout.preferredWidth: 32
                         Layout.preferredHeight: 32
                         radius: 8
                         color: closeMouse.containsMouse ? Qt.alpha(theme.surface2, 0.8) : Qt.alpha(theme.surface1, 0.5)
-                        border.color: Qt.alpha(theme.surface2, 0.6)
+                        border.color: closeMouse.containsMouse ? theme.mauve : Qt.alpha(theme.surface2, 0.6)
                         border.width: 1
 
                         Text {
