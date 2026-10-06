@@ -9,10 +9,36 @@ if [ ! -f "$SHARE_DIR/player_tui.py" ]; then
     [ ! -f "$SHARE_DIR/player_tui.py" ] && SHARE_DIR="$HOME/.local/share/tidal-gui"
 fi
 
-if [ -x "$HOME/.local/share/low-tide/.venv/bin/python" ]; then
+if [ -x "$SHARE_DIR/.venv/bin/python" ]; then
+    PYTHON_BIN="$SHARE_DIR/.venv/bin/python"
+elif [ -x "$HOME/.local/share/quick-tide/.venv/bin/python" ]; then
+    PYTHON_BIN="$HOME/.local/share/quick-tide/.venv/bin/python"
+elif [ -x "$HOME/.local/share/low-tide/.venv/bin/python" ]; then
     PYTHON_BIN="$HOME/.local/share/low-tide/.venv/bin/python"
 else
     PYTHON_BIN="python3"
 fi
 
-exec "$PYTHON_BIN" "$SHARE_DIR/player_tui.py" "$@"
+LOG_DIR="$HOME/.cache/quick-tide"
+mkdir -p "$LOG_DIR"
+CRASH_LOG="$LOG_DIR/player_crash.log"
+
+"$PYTHON_BIN" "$SHARE_DIR/player_tui.py" "$@"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    stty sane 2>/dev/null || true
+    echo ""
+    echo "──────────────────────────────────────────────────────────────────────────"
+    echo "⚠️  Quick-Tide Player finalizó con un error (código de salida: $EXIT_CODE)."
+    if [ -f "$CRASH_LOG" ]; then
+        echo "Último registro de error ($CRASH_LOG):"
+        echo "──────────────────────────────────────────────────────────────────────────"
+        tail -n 20 "$CRASH_LOG"
+        echo "──────────────────────────────────────────────────────────────────────────"
+    fi
+    echo "Presiona Enter para cerrar esta ventana..."
+    read -r </dev/tty 2>/dev/null || read -r 2>/dev/null || sleep 15
+fi
+
+exit $EXIT_CODE

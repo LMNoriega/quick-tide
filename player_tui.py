@@ -1,4 +1,4 @@
-#!/home/luki/.local/share/low-tide/.venv/bin/python
+#!/usr/bin/env python3
 """
 Tidal Player TUI (Serpantinum / Kitty / Hyprland)
 Full-screen / Tiling music player with native Kitty high-res album art,
@@ -25,6 +25,7 @@ import sys
 import termios
 import threading
 import time
+import traceback
 import tty
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -39,24 +40,61 @@ for p in [SHARE_DIR, LOWTIDE_DIR] + venv_site_pkgs:
     if os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
 
+LOG_DIR = os.path.expanduser("~/.cache/quick-tide")
+os.makedirs(LOG_DIR, exist_ok=True)
+CRASH_LOG = os.path.join(LOG_DIR, "player_crash.log")
+LOG_FILE = os.path.join(LOG_DIR, "player.log")
+
+
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    try:
+        with open(CRASH_LOG, "a", encoding="utf-8") as f:
+            f.write(f"\n=== CRASH AT {time.ctime()} ===\n")
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+sys.excepthook = _global_exception_handler
+
+# File logging
+file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"))
+logging.basicConfig(level=logging.ERROR, handlers=[file_handler])
+log = logging.getLogger(__name__)
+
 import config
 import music_backend
 import tidal_backend
 from scrobbler import QuickTideScrobbler, test_lastfm_credentials
 
-# Import dbus-next for native MPRIS2 desktop integration
-from dbus_next.aio import MessageBus
-from dbus_next.service import ServiceInterface, dbus_property, method, signal as dbus_signal
-from dbus_next.constants import PropertyAccess
-from dbus_next import BusType, Variant
+# Import dbus-next for native MPRIS2 desktop integration (optional)
+try:
+    from dbus_next.aio import MessageBus
+    from dbus_next.service import ServiceInterface, dbus_property, method, signal as dbus_signal
+    from dbus_next.constants import PropertyAccess
+    from dbus_next import BusType, Variant
+    HAS_DBUS = True
+except ImportError:
+    HAS_DBUS = False
+    MessageBus = None
+    ServiceInterface = object
+    dbus_property = lambda *a, **kw: (lambda f: property(f))
+    method = lambda *a, **kw: (lambda f: f)
+    dbus_signal = lambda *a, **kw: (lambda f: f)
+    PropertyAccess = type("PropertyAccess", (), {"READ": 1, "READWRITE": 2})
+    BusType = None
+    Variant = None
 
 MPV_SOCKET_A = f"/tmp/tidal-mpv-a-{os.getpid()}.sock"
 MPV_SOCKET_B = f"/tmp/tidal-mpv-b-{os.getpid()}.sock"
 PLAYER_SOCKET = "/tmp/tidal-player.sock"
 SERP_STATE = os.path.expanduser("~/.local/state/serpantinum")
-
-logging.basicConfig(level=logging.ERROR)
-log = logging.getLogger(__name__)
 
 
 def hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
@@ -123,7 +161,10 @@ COLOR_GREEN = fg_color("green")
 
 class TidalMprisRoot(ServiceInterface):
     def __init__(self, quit_cb):
-        super().__init__("org.mpris.MediaPlayer2")
+        if HAS_DBUS:
+            super().__init__("org.mpris.MediaPlayer2")
+        else:
+            super().__init__()
         self._quit_cb = quit_cb
 
     @dbus_property(access=PropertyAccess.READ)
@@ -161,7 +202,10 @@ class TidalMprisRoot(ServiceInterface):
 
 class TidalMprisPlayer(ServiceInterface):
     def __init__(self, player):
-        super().__init__("org.mpris.MediaPlayer2.Player")
+        if HAS_DBUS:
+            super().__init__("org.mpris.MediaPlayer2.Player")
+        else:
+            super().__init__()
         self.player = player
         self._playback_status = "Stopped"
         self._loop_status = "None"
@@ -301,6 +345,9 @@ class TidalMprisService:
         self.thread = None
 
     def start(self):
+        if not HAS_DBUS:
+            log.info("MPRIS2 desactivado: python-dbus-next no está instalado.")
+            return
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
@@ -1889,10 +1936,12 @@ def main():
         app.run()
     except Exception as e:
         import traceback
-        crash_log = os.path.join(SHARE_DIR, "player_crash.log")
-        with open(crash_log, "a") as f:
-            f.write(f"\n=== CRASH AT {time.ctime()} ===\n")
-            traceback.print_exc(file=f)
+        try:
+            with open(CRASH_LOG, "a", encoding="utf-8") as f:
+                f.write(f"\n=== CRASH AT {time.ctime()} ===\n")
+                traceback.print_exc(file=f)
+        except Exception:
+            pass
         log.error("Error fatal en TidalPlayerTUI: %s", e)
         raise
 

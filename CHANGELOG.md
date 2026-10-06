@@ -1,6 +1,14 @@
-version = 1.3.0
+version = 1.3.1
 
 # Registro de Cambios (Changelog) - Quick-Tide
+
+## [1.3.1] - 2026-10-05
+### Corregido
+- **Tolerancia a fallos en MPRIS2 D-Bus**: importación protegida de `dbus-next` para evitar cierres inmediatos (`ModuleNotFoundError`) en sistemas donde no esté instalado el paquete `python-dbus-next`. El reproductor ahora inicia y reproduce música normalmente con un fallback seguro.
+- **Prevención de cierre instantáneo de terminal**: el wrapper `bin/tidal-player-tui` ahora captura fallos no controlados, restaura el modo normal de la terminal (`stty sane`), muestra las últimas líneas de error y espera interacción del usuario para que la ventana de Kitty no desaparezca al instante.
+- **Registro persistente de errores y trazas**: generación automática de trazas de fallo en `~/.cache/quick-tide/player_crash.log` y bitácora en `~/.cache/quick-tide/player.log` ante cualquier excepción no capturada (`sys.excepthook`).
+- **Comprobación de dependencias en instalador**: `install.sh` ahora verifica e informa sobre paquetes opcionales/recomendados (`python-dbus-next`, `python-pillow`, `python-tidalapi`).
+- **Shebang corregido en `player_tui.py`**: sustitución de ruta absoluta heredada por `#!/usr/bin/env python3`.
 
 ## [1.3.0] - 2026-09-28
 ### Añadido
