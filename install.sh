@@ -411,9 +411,9 @@ tokens = [t.strip().upper() for t in re.split(r"[\s+,]+", raw) if t.strip()]
 mods = []
 key = None
 for tok in tokens:
-    if tok in ("SUPER", "WIN", "WINDOWS", "MOD4", "SUPR"):
+    if tok in ("SUPER", "WIN", "WINDOWS", "MOD4", "SUPR", "META", "MOD"):
         mods.append("SUPER")
-    elif tok in ("SHIFT", "SHFT"):
+    elif tok in ("SHIFT", "SHFT", "MAYUS", "MAYUSCULAS"):
         mods.append("SHIFT")
     elif tok in ("CTRL", "CONTROL"):
         mods.append("CTRL")
@@ -488,15 +488,20 @@ if [[ "$set_key" =~ ^[sS]$ ]]; then
     KEY_KDE=$(echo "$PARSED_KEYS" | cut -d';' -f3)
     KEY_SWAY=$(echo "$PARSED_KEYS" | cut -d';' -f4)
 
-    echo -e "  ${GREEN}✔ Atajo normalizado:${RESET} ${CYAN}${KEY_LUA}${RESET}"
+    if [ "$CURRENT_DESKTOP" = "kde" ]; then
+        echo -e "  ${GREEN}✔ Atajo normalizado:${RESET} ${CYAN}${KEY_KDE}${RESET}"
+    else
+        echo -e "  ${GREEN}✔ Atajo normalizado:${RESET} ${CYAN}${KEY_LUA}${RESET}"
+    fi
 
     case "$CURRENT_DESKTOP" in
         kde)
             KCONF=$(command -v kwriteconfig6 || command -v kwriteconfig5 || true)
             if [ -n "$KCONF" ]; then
                 $KCONF --file kglobalshortcutsrc --group "quick-tide.desktop" --key "_launch" "${KEY_KDE},none,Quick-Tide (Buscador Tidal)"
-                qdbus6 org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig 2>/dev/null || \
-                qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig 2>/dev/null || true
+                $KCONF --file kglobalshortcutsrc --group "services" --group "quick-tide.desktop" --key "_launch" "${KEY_KDE},none,Quick-Tide (Buscador Tidal)"
+                qdbus6 org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig >/dev/null 2>&1 || \
+                qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig >/dev/null 2>&1 || true
                 echo -e "  ${GREEN}✔ Atajo '$KEY_KDE' registrado en KDE Plasma (kglobalshortcutsrc).${RESET}"
             else
                 echo -e "  ${YELLOW}Abre 'Preferencias del Sistema > Accesos rápidos', busca 'Quick-Tide' y asígnale '$KEY_KDE'.${RESET}"
