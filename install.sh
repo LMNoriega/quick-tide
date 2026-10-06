@@ -266,6 +266,21 @@ if ! command -v yt-dlp >/dev/null 2>&1; then
     MISSING_PKGS+=("yt-dlp")
 fi
 
+# Comprobar python-dbus-next (Integración MPRIS2 multimedia en escritorio)
+if ! python3 -c "import dbus_next" >/dev/null 2>&1; then
+    MISSING_PKGS+=("python-dbus-next")
+fi
+
+# Comprobar python-pillow (recorte de carátulas de YouTube)
+if ! python3 -c "import PIL" >/dev/null 2>&1; then
+    MISSING_PKGS+=("python-pillow")
+fi
+
+# Comprobar python-tidalapi (Streaming nativo de Tidal)
+if ! python3 -c "import tidalapi" >/dev/null 2>&1; then
+    MISSING_PKGS+=("python-tidalapi")
+fi
+
 # Detección y recomendación de Kitty
 if command -v kitty >/dev/null 2>&1; then
     echo -e "  ${GREEN}✔ Terminal Kitty detectada (soporte nativo de carátulas kitten icat).${RESET}"

@@ -606,11 +606,17 @@ class TidalSearchBackend(QObject):
                 sent = False
 
         if not sent:
+            player_bin = os.path.expanduser("~/.local/bin/tidal-player-tui")
+            if not os.path.isfile(player_bin):
+                local_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "tidal-player-tui")
+                if os.path.isfile(local_bin):
+                    player_bin = local_bin
+
             cmd = [
                 "kitty",
                 "--class", "tidal-player-tui",
                 "--title", "Quick-Tide - Player",
-                os.path.expanduser("~/.local/bin/tidal-player-tui"),
+                player_bin,
                 "--type", str(item_type),
                 "--id", str(item_id),
                 "--start-idx", str(start_idx),
