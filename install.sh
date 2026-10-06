@@ -402,6 +402,45 @@ fi
 # 5. Detección de entorno y configuración de atajo de teclado
 echo -e "\n${BLUE}==> 5. Configuración de atajos de teclado y reglas de ventana...${RESET}"
 
+normalize_keybind() {
+    local raw="$1"
+    python3 -c '
+import sys, re
+raw = sys.argv[1].strip() if len(sys.argv) > 1 and sys.argv[1].strip() else "SUPER + T"
+tokens = [t.strip().upper() for t in re.split(r"[\s+,]+", raw) if t.strip()]
+mods = []
+key = None
+for tok in tokens:
+    if tok in ("SUPER", "WIN", "WINDOWS", "MOD4", "SUPR"):
+        mods.append("SUPER")
+    elif tok in ("SHIFT", "SHFT"):
+        mods.append("SHIFT")
+    elif tok in ("CTRL", "CONTROL"):
+        mods.append("CTRL")
+    elif tok in ("ALT", "MOD1"):
+        mods.append("ALT")
+    else:
+        key = tok.upper() if len(tok) == 1 else tok.capitalize()
+
+if not key:
+    key = "T"
+if not mods:
+    mods = ["SUPER"]
+
+seen = set()
+uniq_mods = [m for m in mods if not (m in seen or seen.add(m))]
+
+lua_str = " + ".join(uniq_mods + [key])
+hypr_str = " ".join(uniq_mods) + ", " + key
+kde_mods = [m.replace("SUPER", "Meta").capitalize() for m in uniq_mods]
+kde_str = "+".join(kde_mods + [key])
+sway_mods = ["$mod" if m == "SUPER" else m.lower() for m in uniq_mods]
+sway_str = "+".join(sway_mods + [key.lower()])
+
+print(f"{lua_str};{hypr_str};{kde_str};{sway_str}")
+' "$raw" 2>/dev/null || echo "SUPER + T;SUPER, T;Meta+T;\$mod+t"
+}
+
 CURRENT_DESKTOP="desconocido"
 if [ -n "$KDE_FULL_SESSION" ] || [ "$XDG_CURRENT_DESKTOP" = "KDE" ] || [ "$DESKTOP_SESSION" = "plasma" ]; then
     CURRENT_DESKTOP="kde"
@@ -422,23 +461,45 @@ if [ "$CURRENT_DESKTOP" = "kde" ]; then
     DEFAULT_KEY="Meta+Shift+T"
 fi
 
+echo ""
+echo -e "  ${PURPLE}╭──────────────────────────────────────────────────────────────────╮${RESET}"
+echo -e "  ${PURPLE}│${RESET} ⌨️   ${BOLD}¿Cómo escribir tu combinación de teclas?${RESET}                       ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET} • Puedes usar el signo '+' o comas, mayúsculas o minúsculas.      ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET} • Tecla Windows / Super: escribe ${CYAN}SUPER${RESET} (o Win / Supr).             ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET} • Modificadores disponibles: ${CYAN}SUPER${RESET}, ${CYAN}ALT${RESET}, ${CYAN}CTRL${RESET}, ${CYAN}SHIFT${RESET}.            ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET} • Ejemplos habituales:                                            ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET}     1) ${GREEN}SUPER + T${RESET}          (Tecla Windows + T)                     ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET}     2) ${GREEN}SUPER + SHIFT + T${RESET}  (Tecla Windows + Shift + T)             ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET}     3) ${GREEN}ALT + SPACE${RESET}        (Tecla Alt + Barra espaciadora)         ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}│${RESET}     4) Presionar [Enter]   (Usa el recomendado: ${BOLD}${DEFAULT_KEY}${RESET})        ${PURPLE}│${RESET}"
+echo -e "  ${PURPLE}╰──────────────────────────────────────────────────────────────────╯${RESET}"
+echo ""
+
 read -rp "  ¿Deseas configurar el atajo de teclado global ahora? [S/n]: " set_key
 set_key=${set_key:-S}
 
 if [[ "$set_key" =~ ^[sS]$ ]]; then
-    read -rp "  Ingresa la combinación de teclas deseada [Default: $DEFAULT_KEY]: " CHOSEN_KEY
-    CHOSEN_KEY="${CHOSEN_KEY:-$DEFAULT_KEY}"
+    read -rp "  Ingresa la combinación deseada [Default: $DEFAULT_KEY]: " RAW_USER_KEY
+    RAW_USER_KEY="${RAW_USER_KEY:-$DEFAULT_KEY}"
+
+    PARSED_KEYS=$(normalize_keybind "$RAW_USER_KEY")
+    KEY_LUA=$(echo "$PARSED_KEYS" | cut -d';' -f1)
+    KEY_HYPR=$(echo "$PARSED_KEYS" | cut -d';' -f2)
+    KEY_KDE=$(echo "$PARSED_KEYS" | cut -d';' -f3)
+    KEY_SWAY=$(echo "$PARSED_KEYS" | cut -d';' -f4)
+
+    echo -e "  ${GREEN}✔ Atajo normalizado:${RESET} ${CYAN}${KEY_LUA}${RESET}"
 
     case "$CURRENT_DESKTOP" in
         kde)
             KCONF=$(command -v kwriteconfig6 || command -v kwriteconfig5 || true)
             if [ -n "$KCONF" ]; then
-                $KCONF --file kglobalshortcutsrc --group "quick-tide.desktop" --key "_launch" "${CHOSEN_KEY},none,Quick-Tide (Buscador Tidal)"
+                $KCONF --file kglobalshortcutsrc --group "quick-tide.desktop" --key "_launch" "${KEY_KDE},none,Quick-Tide (Buscador Tidal)"
                 qdbus6 org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig 2>/dev/null || \
                 qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig 2>/dev/null || true
-                echo -e "  ${GREEN}✔ Atajo '$CHOSEN_KEY' registrado en KDE Plasma (kglobalshortcutsrc).${RESET}"
+                echo -e "  ${GREEN}✔ Atajo '$KEY_KDE' registrado en KDE Plasma (kglobalshortcutsrc).${RESET}"
             else
-                echo -e "  ${YELLOW}Abre 'Preferencias del Sistema > Accesos rápidos', busca 'Quick-Tide' y asígnale '$CHOSEN_KEY'.${RESET}"
+                echo -e "  ${YELLOW}Abre 'Preferencias del Sistema > Accesos rápidos', busca 'Quick-Tide' y asígnale '$KEY_KDE'.${RESET}"
             fi
             ;;
         hyprland)
@@ -446,7 +507,7 @@ if [[ "$set_key" =~ ^[sS]$ ]]; then
             # 1. Omarchy / Modular Lua Hyprland setup
             if [ -f "$HOME/.config/hypr/config/keybinds.lua" ] && [ -f "$HOME/.config/hypr/config/settings.lua" ]; then
                 if ! grep -q "tidal-search-gui" "$HOME/.config/hypr/config/keybinds.lua" 2>/dev/null; then
-                    echo "hl.bind(\"$CHOSEN_KEY\", hl.dsp.exec_cmd(\"tidal-search-gui\"))" >> "$HOME/.config/hypr/config/keybinds.lua"
+                    echo "hl.bind(\"$KEY_LUA\", hl.dsp.exec_cmd(\"tidal-search-gui\"))" >> "$HOME/.config/hypr/config/keybinds.lua"
                 fi
                 if ! grep -q "tidal-search-gui" "$HOME/.config/hypr/config/settings.lua" 2>/dev/null; then
                     cat <<'HL' >> "$HOME/.config/hypr/config/settings.lua"
@@ -473,7 +534,7 @@ HL
             # 2. Archcraft / bindings.lua setup
             elif [ -f "$HOME/.config/hypr/bindings.lua" ]; then
                 if ! grep -q "tidal-search-gui" "$HOME/.config/hypr/bindings.lua" 2>/dev/null; then
-                    echo "hl.bind(\"$CHOSEN_KEY\", hl.dsp.exec_cmd(\"tidal-search-gui\"))" >> "$HOME/.config/hypr/bindings.lua"
+                    echo "hl.bind(\"$KEY_LUA\", hl.dsp.exec_cmd(\"tidal-search-gui\"))" >> "$HOME/.config/hypr/bindings.lua"
                 fi
                 CONFIGURED=1
             # 3. Standard hyprland.conf setup
@@ -481,8 +542,8 @@ HL
                 if ! grep -q "tidal-search-gui" "$HOME/.config/hypr/hyprland.conf" 2>/dev/null; then
                     cat <<HLC >> "$HOME/.config/hypr/hyprland.conf"
 
-# Quick-Tide Tidal Suite
-bind = SUPER, T, exec, tidal-search-gui
+# Quick-Tide
+bind = $KEY_HYPR, exec, tidal-search-gui
 windowrulev2 = float, class:^(tidal-search-gui)$
 windowrulev2 = center, class:^(tidal-search-gui)$
 windowrulev2 = size 740 560, class:^(tidal-search-gui)$
@@ -498,28 +559,72 @@ HLC
                 if command -v hyprctl >/dev/null 2>&1; then
                     hyprctl reload >/dev/null 2>&1 || true
                 fi
-                echo -e "  ${GREEN}✔ Atajo y reglas de ventana flotante configuradas y recargadas en Hyprland.${RESET}"
+                echo -e "  ${GREEN}✔ Atajo '$KEY_LUA' y reglas de ventana flotante configuradas y recargadas en Hyprland.${RESET}"
             else
-                echo -e "  ${GREEN}Para Hyprland, añade la siguiente línea a tu configuración:${RESET}"
-                echo -e "  ${CYAN}bind = SUPER, T, exec, tidal-search-gui${RESET}"
+                echo -e "\n  ${PURPLE}╭──────────────────────────────────────────────────────────────╮${RESET}"
+                echo -e "  ${PURPLE}│${RESET} 📋 ${BOLD}Instrucciones para configurar manualmente en Hyprland:${RESET}     ${PURPLE}│${RESET}"
+                echo -e "  ${PURPLE}╰──────────────────────────────────────────────────────────────╯${RESET}"
+                echo -e "  • En ${CYAN}~/.config/hypr/hyprland.conf${RESET} añade:"
+                echo -e "      ${GREEN}bind = $KEY_HYPR, exec, tidal-search-gui${RESET}"
+                echo -e "      ${GREEN}windowrulev2 = float, class:^(tidal-search-gui)$${RESET}"
+                echo -e "      ${GREEN}windowrulev2 = size 740 560, class:^(tidal-search-gui)$${RESET}"
+                echo -e "      ${GREEN}windowrulev2 = center, class:^(tidal-search-gui)$${RESET}"
+                echo -e "      ${GREEN}windowrulev2 = float, class:^(tidal-player-tui)$${RESET}"
+                echo -e "      ${GREEN}windowrulev2 = size 1100 680, class:^(tidal-player-tui)$${RESET}"
+                echo -e "      ${GREEN}windowrulev2 = center, class:^(tidal-player-tui)$${RESET}\n"
+                echo -e "  • O si usas configuración modular en Lua (${CYAN}keybinds.lua${RESET}):"
+                echo -e "      ${GREEN}hl.bind(\"$KEY_LUA\", hl.dsp.exec_cmd(\"tidal-search-gui\"))${RESET}\n"
             fi
             ;;
         gnome)
-            echo -e "  ${GREEN}En GNOME puedes asignarlo desde: Configuración > Teclado > Ver y personalizar atajos > Atajos personalizados.${RESET}"
-            echo -e "  Comando: ${CYAN}tidal-search-gui${RESET} | Tecla: ${CYAN}$CHOSEN_KEY${RESET}"
+            echo -e "\n  ${PURPLE}╭──────────────────────────────────────────────────────────────╮${RESET}"
+            echo -e "  ${PURPLE}│${RESET} 📋 ${BOLD}Configuración de atajo en GNOME:${RESET}                           ${PURPLE}│${RESET}"
+            echo -e "  ${PURPLE}╰──────────────────────────────────────────────────────────────╯${RESET}"
+            echo -e "  1. Ve a ${CYAN}Configuración > Teclado > Ver y personalizar atajos > Atajos personalizados${RESET}."
+            echo -e "  2. Añade un nuevo atajo:"
+            echo -e "     • Nombre:  ${BOLD}Quick-Tide${RESET}"
+            echo -e "     • Comando: ${CYAN}tidal-search-gui${RESET}"
+            echo -e "     • Tecla:   ${CYAN}$KEY_LUA${RESET}\n"
             ;;
         sway|i3)
-            echo -e "  ${GREEN}En tu archivo de configuración de Sway/i3 añade:${RESET}"
-            echo -e "  ${CYAN}bindsym \$mod+t exec tidal-search-gui${RESET}"
+            echo -e "\n  ${PURPLE}╭──────────────────────────────────────────────────────────────╮${RESET}"
+            echo -e "  ${PURPLE}│${RESET} 📋 ${BOLD}Configuración para Sway / i3 (~/.config/sway/config):${RESET}      ${PURPLE}│${RESET}"
+            echo -e "  ${PURPLE}╰──────────────────────────────────────────────────────────────╯${RESET}"
+            echo -e "  Añade la siguiente línea a tu archivo de configuración:"
+            echo -e "      ${GREEN}bindsym $KEY_SWAY exec tidal-search-gui${RESET}\n"
             ;;
         niri)
-            echo -e "  ${GREEN}En tu config.kdl de Niri añade:${RESET}"
-            echo -e "  ${CYAN}binds { Mod+T { spawn \"tidal-search-gui\"; } }${RESET}"
+            echo -e "\n  ${PURPLE}╭──────────────────────────────────────────────────────────────╮${RESET}"
+            echo -e "  ${PURPLE}│${RESET} 📋 ${BOLD}Configuración para Niri (~/.config/niri/config.kdl):${RESET}       ${PURPLE}│${RESET}"
+            echo -e "  ${PURPLE}╰──────────────────────────────────────────────────────────────╯${RESET}"
+            echo -e "  Añade el bloque:"
+            echo -e "      ${GREEN}binds { Mod+T { spawn \"tidal-search-gui\"; } }${RESET}\n"
             ;;
         *)
-            echo -e "  ${GREEN}Atajo asignable en tu gestor de ventanas: Comando '${CYAN}tidal-search-gui${RESET}' con teclas '${CYAN}$CHOSEN_KEY${RESET}'.${RESET}"
+            echo -e "\n  ${PURPLE}╭──────────────────────────────────────────────────────────────╮${RESET}"
+            echo -e "  ${PURPLE}│${RESET} 📋 ${BOLD}Atajo manual para tu gestor de ventanas:${RESET}                  ${PURPLE}│${RESET}"
+            echo -e "  ${PURPLE}╰──────────────────────────────────────────────────────────────╯${RESET}"
+            echo -e "  Asigna la combinación ${CYAN}$KEY_LUA${RESET} al comando ${CYAN}tidal-search-gui${RESET}.\n"
             ;;
     esac
+else
+    echo -e "\n  ${YELLOW}Configuración automática omitida.${RESET}"
+    echo -e "  ${PURPLE}╭──────────────────────────────────────────────────────────────╮${RESET}"
+    echo -e "  ${PURPLE}│${RESET} 📋 ${BOLD}Instrucciones manuales para cuando quieras configurarlo:${RESET}    ${PURPLE}│${RESET}"
+    echo -e "  ${PURPLE}╰──────────────────────────────────────────────────────────────╯${RESET}"
+    echo -e "  • ${BOLD}Hyprland (hyprland.conf):${RESET}"
+    echo -e "      ${GREEN}bind = SUPER, T, exec, tidal-search-gui${RESET}"
+    echo -e "      ${GREEN}windowrulev2 = float, class:^(tidal-search-gui)$${RESET}"
+    echo -e "      ${GREEN}windowrulev2 = size 740 560, class:^(tidal-search-gui)$${RESET}"
+    echo -e "      ${GREEN}windowrulev2 = center, class:^(tidal-search-gui)$${RESET}"
+    echo -e "      ${GREEN}windowrulev2 = float, class:^(tidal-player-tui)$${RESET}"
+    echo -e "      ${GREEN}windowrulev2 = size 1100 680, class:^(tidal-player-tui)$${RESET}"
+    echo -e "  • ${BOLD}Hyprland (Lua / keybinds.lua):${RESET}"
+    echo -e "      ${GREEN}hl.bind(\"SUPER + T\", hl.dsp.exec_cmd(\"tidal-search-gui\"))${RESET}"
+    echo -e "  • ${BOLD}Sway / i3:${RESET}"
+    echo -e "      ${GREEN}bindsym \$mod+t exec tidal-search-gui${RESET}"
+    echo -e "  • ${BOLD}KDE / GNOME:${RESET}"
+    echo -e "      Comando: ${CYAN}tidal-search-gui${RESET} | Tecla sugerida: ${CYAN}SUPER + T${RESET}\n"
 fi
 
 # 6. Finalización
