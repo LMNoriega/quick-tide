@@ -205,6 +205,7 @@ if [ "$ACTION" = "update" ]; then
     ln -sf "$TARGET_SHARE/bin/tidal-player-tui" "$HOME/.local/bin/tidal-player-tui" 2>/dev/null || ln -sf "$DIR/bin/tidal-player-tui" "$HOME/.local/bin/tidal-player-tui"
     ln -sf "$HOME/.local/bin/tidal-search-gui" "$HOME/.local/bin/quick-tide"
     ln -sf "$HOME/.local/bin/tidal-player-tui" "$HOME/.local/bin/quick-tide-player"
+    ln -sf "$DIR/update.sh" "$HOME/.local/bin/quick-tide-update"
 
     # Mantener enlace legacy si existía
     if [ ! -e "$HOME/.local/share/tidal-gui" ]; then
@@ -370,6 +371,7 @@ ln -sf "$TARGET_SHARE/bin/tidal-search-gui" "$BIN_DIR/tidal-search-gui"
 ln -sf "$TARGET_SHARE/bin/tidal-player-tui" "$BIN_DIR/tidal-player-tui"
 ln -sf "$BIN_DIR/tidal-search-gui" "$BIN_DIR/quick-tide"
 ln -sf "$BIN_DIR/tidal-player-tui" "$BIN_DIR/quick-tide-player"
+ln -sf "$DIR/update.sh" "$BIN_DIR/quick-tide-update"
 
 # Compatibilidad con enlace histórico ~/.local/share/tidal-gui
 if [ ! -e "$HOME/.local/share/tidal-gui" ]; then
